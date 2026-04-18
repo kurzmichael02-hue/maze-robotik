@@ -1,0 +1,34 @@
+# ros2 build outputs
+workspace/build/
+workspace/install/
+workspace/log/
+
+# generated mazes (jeder generiert selbst, ausser maze.sdf default)
+workspace/src/maze_worlds/worlds/*.sdf
+!workspace/src/maze_worlds/worlds/maze.sdf
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# benchmark outputs (lokale runs)
+workspace/src/maze_planners/results/
+workspace/src/maze_planners/results_local/
+**/*.png
+!Images/**/*.png
+!docs/**/*.png
+
+# editor
+.vscode/
+.idea/
+*.swp
+
+# os
+.DS_Store
+Thumbs.db
+
+# docker
+*.log
