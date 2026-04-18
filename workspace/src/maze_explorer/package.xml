@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>maze_explorer</name>
+  <version>0.0.1</version>
+  <description>frontier exploration + slam config for maze runner</description>
+  <maintainer email="kurzmichael02@gmail.com">Michael Kurz</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>nav2_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>slam_toolbox</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

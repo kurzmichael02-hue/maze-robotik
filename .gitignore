@@ -1,0 +1,22 @@
+# ros2 build outputs
+workspace/build/
+workspace/install/
+workspace/log/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# editor
+.vscode/
+.idea/
+*.swp
+
+# os
+.DS_Store
+Thumbs.db
+
+# docker
+*.log
