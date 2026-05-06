@@ -2,19 +2,18 @@
 <package format="3">
   <name>maze_planners</name>
   <version>0.0.1</version>
-  <description>path planning algorithms (wall-follower, bfs, a*, flood-fill) + benchmarks</description>
+  <description>path planning algos (wall-follower, bfs, a*, flood-fill) + benchmark</description>
   <maintainer email="kurzmichael02@gmail.com">Michael Kurz</maintainer>
   <license>MIT</license>
 
-  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_python</buildtool_depend>
 
-  <depend>rclcpp</depend>
-  <depend>nav_msgs</depend>
-  <depend>nav2_msgs</depend>
-  <depend>geometry_msgs</depend>
-  <depend>visualization_msgs</depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
 
   <export>
-    <build_type>ament_cmake</build_type>
+    <build_type>ament_python</build_type>
   </export>
 </package>
