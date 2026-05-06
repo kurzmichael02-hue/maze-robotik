@@ -3,6 +3,9 @@ workspace/build/
 workspace/install/
 workspace/log/
 
+# generated mazes (jeder generiert selbst)
+workspace/src/maze_worlds/worlds/
+
 # python
 __pycache__/
 *.pyc

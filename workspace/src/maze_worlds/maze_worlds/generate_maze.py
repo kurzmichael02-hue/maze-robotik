@@ -68,7 +68,7 @@ def cells_to_walls(cells, size, cell_size):
     return walls
 
 
-def walls_to_sdf(walls, size, cell_size, wall_height=0.5, wall_thickness=0.05):
+def walls_to_sdf(walls, size, cell_size, wall_height=1.2, wall_thickness=0.08):
     boxes = []
     for i, (x, y, length, orient) in enumerate(walls):
         if orient == 'h':
@@ -87,16 +87,62 @@ def walls_to_sdf(walls, size, cell_size, wall_height=0.5, wall_thickness=0.05):
         </collision>
         <visual name="v">
           <geometry><box><size>{sx} {sy} {sz}</size></box></geometry>
-          <material><ambient>0.3 0.3 0.35 1</ambient><diffuse>0.4 0.4 0.45 1</diffuse></material>
+          <material>
+            <ambient>0.15 0.15 0.2 1</ambient>
+            <diffuse>0.25 0.28 0.35 1</diffuse>
+            <specular>0.4 0.4 0.5 1</specular>
+            <emissive>0.02 0.02 0.04 1</emissive>
+          </material>
         </visual>
       </link>
       <pose>{px} {py} {pz} 0 0 0</pose>
     </model>""")
 
-    floor_size = size * cell_size + 1
+    floor_size = size * cell_size + 4
+    start_x = 0.5 * cell_size
+    start_y = -0.4
+    goal_x = (size - 0.5) * cell_size
+    goal_y = size * cell_size + 0.4
+
+    markers = f"""
+    <model name="start_marker">
+      <static>true</static>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>{cell_size * 0.7} 0.4 0.01</size></box></geometry>
+          <material>
+            <ambient>0.0 0.6 0.1 1</ambient>
+            <diffuse>0.0 0.9 0.15 1</diffuse>
+            <emissive>0.0 0.4 0.05 1</emissive>
+          </material>
+        </visual>
+      </link>
+      <pose>{start_x} {start_y} 0.005 0 0 0</pose>
+    </model>
+    <model name="goal_marker">
+      <static>true</static>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>{cell_size * 0.7} 0.4 0.01</size></box></geometry>
+          <material>
+            <ambient>0.7 0.05 0.05 1</ambient>
+            <diffuse>1.0 0.1 0.1 1</diffuse>
+            <emissive>0.5 0.0 0.0 1</emissive>
+          </material>
+        </visual>
+      </link>
+      <pose>{goal_x} {goal_y} 0.005 0 0 0</pose>
+    </model>"""
+
     sdf = f"""<?xml version="1.0"?>
 <sdf version="1.9">
   <world name="maze">
+    <physics name="default_physics" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
@@ -104,11 +150,37 @@ def walls_to_sdf(walls, size, cell_size, wall_height=0.5, wall_thickness=0.05):
       <render_engine>ogre2</render_engine>
     </plugin>
 
+    <scene>
+      <ambient>0.3 0.3 0.35 1</ambient>
+      <background>0.05 0.06 0.1 1</background>
+      <grid>false</grid>
+      <shadows>true</shadows>
+    </scene>
+
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
-      <pose>0 0 10 0 0 0</pose>
-      <diffuse>1 1 1 1</diffuse>
-      <direction>-0.5 0.5 -1</direction>
+      <pose>0 0 15 0 0 0</pose>
+      <diffuse>0.95 0.95 1.0 1</diffuse>
+      <specular>0.3 0.3 0.4 1</specular>
+      <direction>-0.4 0.5 -1</direction>
+      <attenuation>
+        <range>50</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+
+    <light type="point" name="goal_glow">
+      <pose>{goal_x} {goal_y} 1.5 0 0 0</pose>
+      <diffuse>1.0 0.2 0.2 1</diffuse>
+      <specular>0.8 0.1 0.1 1</specular>
+      <attenuation>
+        <range>5</range>
+        <constant>0.4</constant>
+        <linear>0.5</linear>
+        <quadratic>0.2</quadratic>
+      </attenuation>
     </light>
 
     <model name="ground">
@@ -117,10 +189,15 @@ def walls_to_sdf(walls, size, cell_size, wall_height=0.5, wall_thickness=0.05):
         <collision name="c"><geometry><plane><normal>0 0 1</normal><size>{floor_size} {floor_size}</size></plane></geometry></collision>
         <visual name="v">
           <geometry><plane><normal>0 0 1</normal><size>{floor_size} {floor_size}</size></plane></geometry>
-          <material><ambient>0.8 0.8 0.8 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>
+          <material>
+            <ambient>0.12 0.13 0.16 1</ambient>
+            <diffuse>0.2 0.22 0.26 1</diffuse>
+            <specular>0.1 0.1 0.12 1</specular>
+          </material>
         </visual>
       </link>
     </model>
+{markers}
 {''.join(boxes)}
   </world>
 </sdf>
