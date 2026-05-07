@@ -13,7 +13,7 @@ import random
 from pathlib import Path
 
 
-def generate_grid(size, seed=None):
+def generate_grid(size, seed=None, extra_passages_factor=0.20):
     """recursive backtracker. liefert dict {(x,y): {'N','E','S','W'} mit verbleibenden wänden}."""
     if seed is not None:
         random.seed(seed)
@@ -64,8 +64,9 @@ def generate_grid(size, seed=None):
             continue
         seen.add(key)
         unique.append((a, d, b))
-    n_remove = max(1, int(0.2 * len(unique)))
-    random.shuffle(unique)
+    n_remove = int(extra_passages_factor * len(unique))
+    if n_remove > 0:
+        random.shuffle(unique)
     for (x, y), d, (nx, ny) in unique[:n_remove]:
         cells[(x, y)].discard(d)
         cells[(nx, ny)].discard(opp[d])
@@ -382,16 +383,22 @@ def main():
     ap.add_argument('--cell', type=float, default=1.0, help='cell size in meters')
     ap.add_argument('--seed', type=int, default=None)
     ap.add_argument('--out', type=str, default='worlds/maze.sdf')
+    ap.add_argument('--difficulty', type=str, default='medium',
+                    choices=['easy', 'medium', 'hard'],
+                    help='easy = mehr durchgaenge, hard = perfect maze (ein weg)')
     args = ap.parse_args()
 
-    cells = generate_grid(args.size, args.seed)
+    # difficulty steuert wie viele extra durchgaenge nach recursive backtracker
+    extra_factor = {'easy': 0.35, 'medium': 0.20, 'hard': 0.0}[args.difficulty]
+    cells = generate_grid(args.size, args.seed, extra_passages_factor=extra_factor)
     walls = cells_to_walls(cells, args.size, args.cell)
     sdf = walls_to_sdf(walls, args.size, args.cell)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(sdf, encoding='utf-8')
-    print(f"wrote {out} ({len(walls)} walls, {args.size}x{args.size} grid)")
+    print(f"wrote {out} ({len(walls)} walls, {args.size}x{args.size}, "
+          f"difficulty={args.difficulty})")
 
 
 if __name__ == '__main__':

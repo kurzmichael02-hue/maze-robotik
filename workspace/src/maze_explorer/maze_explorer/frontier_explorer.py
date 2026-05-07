@@ -29,7 +29,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 UNKNOWN = -1
 FREE_THRESH = 50
-INFLATION_RADIUS = 0  # safety wird vom reactive controller gemacht
+INFLATION_RADIUS = 1  # 5cm buffer um waende, bot ist 30cm breit
 
 
 def astar_grid(occ, w, h, start_px, goal_px, inflation=INFLATION_RADIUS):
@@ -37,62 +37,52 @@ def astar_grid(occ, w, h, start_px, goal_px, inflation=INFLATION_RADIUS):
     def at(p):
         x, y = p
         if x < 0 or y < 0 or x >= w or y >= h:
-            return 100
+            return UNKNOWN  # out of bounds = unknown, nicht blocked
         return occ[y * w + x]
 
     def is_free(p):
         v = at(p)
         return 0 <= v < FREE_THRESH
 
-    # inflation: cells nahe an wand sind blocked
     def is_safe(p):
         if not is_free(p):
             return False
         x, y = p
         for dx in range(-inflation, inflation + 1):
             for dy in range(-inflation, inflation + 1):
-                if at((x + dx, y + dy)) >= FREE_THRESH:
+                v = at((x + dx, y + dy))
+                if v >= FREE_THRESH:
                     return False
         return True
 
-    # falls start nicht frei ist (drift, off-map), suche naechsten freien pixel
-    if not is_free(start_px):
-        found = False
-        for r in range(1, 40):
+    def nearest_safe(p):
+        """suche naechsten safe pixel ausgehend von p."""
+        if is_safe(p):
+            return p
+        for r in range(1, 50):
             for dx in range(-r, r + 1):
                 for dy in range(-r, r + 1):
                     if abs(dx) != r and abs(dy) != r:
                         continue
-                    p = (start_px[0] + dx, start_px[1] + dy)
-                    if is_free(p):
-                        start_px = p
-                        found = True
-                        break
-                if found:
-                    break
-            if found:
-                break
-        if not found:
-            return []
-    # falls goal nicht frei, auch nearest free
-    if not is_free(goal_px):
-        found = False
-        for r in range(1, 40):
+                    np = (p[0] + dx, p[1] + dy)
+                    if is_safe(np):
+                        return np
+        # fallback: nearest free (ohne inflation check)
+        for r in range(1, 50):
             for dx in range(-r, r + 1):
                 for dy in range(-r, r + 1):
                     if abs(dx) != r and abs(dy) != r:
                         continue
-                    p = (goal_px[0] + dx, goal_px[1] + dy)
-                    if is_free(p):
-                        goal_px = p
-                        found = True
-                        break
-                if found:
-                    break
-            if found:
-                break
-        if not found:
-            return []
+                    np = (p[0] + dx, p[1] + dy)
+                    if is_free(np):
+                        return np
+        return None
+
+    s = nearest_safe(start_px)
+    g_pix = nearest_safe(goal_px)
+    if s is None or g_pix is None:
+        return []
+    start_px, goal_px = s, g_pix
 
     h_func = lambda p: math.hypot(p[0] - goal_px[0], p[1] - goal_px[1])
     open_h = [(h_func(start_px), 0, start_px)]
@@ -102,7 +92,7 @@ def astar_grid(occ, w, h, start_px, goal_px, inflation=INFLATION_RADIUS):
 
     while open_h:
         _, _, cur = heapq.heappop(open_h)
-        if cur == goal_px or math.hypot(cur[0] - goal_px[0], cur[1] - goal_px[1]) < 3:
+        if cur == goal_px or math.hypot(cur[0] - goal_px[0], cur[1] - goal_px[1]) < 2:
             path = []
             while cur is not None:
                 path.append(cur)
@@ -127,10 +117,10 @@ class FrontierExplorer(Node):
     def __init__(self):
         super().__init__('frontier_explorer')
 
-        self.declare_parameter('linear_speed', 0.2)
-        self.declare_parameter('angular_speed', 0.7)
-        self.declare_parameter('waypoint_tol', 0.25)
-        self.declare_parameter('safety_distance', 0.18)
+        self.declare_parameter('linear_speed', 0.18)
+        self.declare_parameter('angular_speed', 0.6)
+        self.declare_parameter('waypoint_tol', 0.22)
+        self.declare_parameter('safety_distance', 0.13)
         self.declare_parameter('replan_period', 3.0)
         self.declare_parameter('min_frontier_size', 4)
         self.declare_parameter('goal_x', 9.5)
@@ -158,6 +148,8 @@ class FrontierExplorer(Node):
         self.last_progress_time = time.time()
         self.recovery_until = 0.0
         self.recovery_dir = 1
+        self.stuck_count = 0
+        self.blacklist = []  # liste von (px, py, until_time) die gemeden werden
 
         map_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL, depth=1)
@@ -227,24 +219,38 @@ class FrontierExplorer(Node):
             if math.hypot(dx, dy) > 0.05 or dyaw > 0.3:
                 self.last_progress_pose = self.pose
                 self.last_progress_time = now
+                # bei genug fahrt: stuck-counter zuruecksetzen
+                if math.hypot(dx, dy) > 0.5:
+                    self.stuck_count = 0
             elif now - self.last_progress_time > self.stuck_timeout and self.recovery_until < now:
-                self.get_logger().warn('stuck detected, full recovery')
-                # full backup 2s + dann ~270 grad drehen ~5s
-                self.recovery_until = now + 7.5
+                self.stuck_count += 1
+                self.get_logger().warn(f'stuck #{self.stuck_count}')
+                # backup + drehen, mehr drehen bei wiederholtem stuck
+                turn_time = 3.0 + min(self.stuck_count, 3) * 1.5
+                self.recovery_until = now + 1.5 + turn_time
                 self.recovery_dir = 1 if self.scan_min['left'] > self.scan_min['right'] else -1
                 self.path = []
                 self.last_progress_time = now
+                # blacklist die aktuelle position fuer 30 sek
+                if self.map:
+                    px = int((self.pose[0] - self.map.info.origin.position.x) / self.map.info.resolution)
+                    py = int((self.pose[1] - self.map.info.origin.position.y) / self.map.info.resolution)
+                    self.blacklist.append((px, py, now + 30))
 
-        # recovery: erst 2 sek zurueck, dann ~5 sek drehen (270 grad)
+        # recovery: erst 1.5 sek zurueck, dann drehen
         if now < self.recovery_until:
             cmd = Twist()
-            time_left = self.recovery_until - now
-            if time_left > 5.5:
+            elapsed_recovery = (self.recovery_until - now)
+            total_recovery = 1.5 + (3.0 + min(self.stuck_count, 3) * 1.5)
+            if elapsed_recovery > total_recovery - 1.5:
                 cmd.linear.x = -0.12
             else:
                 cmd.angular.z = self.ang_speed * self.recovery_dir
             self.pub_cmd.publish(cmd)
             return
+
+        # auto-clean alte blacklist eintraege
+        self.blacklist = [b for b in self.blacklist if b[2] > now]
 
         if self.state == 'EXPLORING':
             self.do_explore(now)
@@ -260,12 +266,28 @@ class FrontierExplorer(Node):
                 self.path = []
                 self.publish_markers([])
                 return
-            biggest = max(frontiers, key=len)
-            cx = sum(p[0] for p in biggest) / len(biggest)
-            cy = sum(p[1] for p in biggest) / len(biggest)
             self.publish_markers(frontiers)
-            # A* zum frontier-centroid
-            self.plan_to_pixel((int(cx), int(cy)))
+
+            # bot-position in pixel
+            bx_px = int((self.pose[0] - self.map.info.origin.position.x) / self.map.info.resolution)
+            by_px = int((self.pose[1] - self.map.info.origin.position.y) / self.map.info.resolution)
+
+            # score: groesser cluster + naeher = besser, blacklist meiden
+            def score(cluster):
+                cx = sum(p[0] for p in cluster) / len(cluster)
+                cy = sum(p[1] for p in cluster) / len(cluster)
+                dist = math.hypot(cx - bx_px, cy - by_px)
+                # blacklist penalty
+                penalty = 0
+                for bx, by, _ in self.blacklist:
+                    if math.hypot(cx - bx, cy - by) < 8:
+                        penalty += 1000
+                return dist - len(cluster) * 0.5 + penalty
+
+            best = min(frontiers, key=score)
+            cx = int(sum(p[0] for p in best) / len(best))
+            cy = int(sum(p[1] for p in best) / len(best))
+            self.plan_to_pixel((cx, cy))
             self.last_replan = now
 
         self.follow_path()
@@ -333,10 +355,12 @@ class FrontierExplorer(Node):
             self.path_index += 1
             return
 
-        # safety check: hindernis vorne
+        # safety check: hindernis vorne -> backup 1 sek + replan
         if self.scan_min['front'] < self.safety:
-            self.stop()
-            self.path = []  # force replan
+            cmd = Twist()
+            cmd.linear.x = -0.1
+            self.pub_cmd.publish(cmd)
+            self.path = []
             return
 
         target_yaw = math.atan2(dy, dx)
