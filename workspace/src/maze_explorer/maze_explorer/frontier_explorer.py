@@ -18,8 +18,9 @@ from collections import deque
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from tf2_ros import Buffer, TransformListener
 
-from nav_msgs.msg import OccupancyGrid, Odometry, Path
+from nav_msgs.msg import OccupancyGrid, Path
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, Point, PoseStamped
 from std_msgs.msg import ColorRGBA
@@ -28,7 +29,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 UNKNOWN = -1
 FREE_THRESH = 50
-INFLATION_RADIUS = 2  # cells around walls to mark as no-go
+INFLATION_RADIUS = 0  # safety wird vom reactive controller gemacht
 
 
 def astar_grid(occ, w, h, start_px, goal_px, inflation=INFLATION_RADIUS):
@@ -54,9 +55,43 @@ def astar_grid(occ, w, h, start_px, goal_px, inflation=INFLATION_RADIUS):
                     return False
         return True
 
-    if not is_safe(start_px):
-        # fallback: kleinere inflation oder einfach freie zelle
-        if not is_free(start_px):
+    # falls start nicht frei ist (drift, off-map), suche naechsten freien pixel
+    if not is_free(start_px):
+        found = False
+        for r in range(1, 40):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if abs(dx) != r and abs(dy) != r:
+                        continue
+                    p = (start_px[0] + dx, start_px[1] + dy)
+                    if is_free(p):
+                        start_px = p
+                        found = True
+                        break
+                if found:
+                    break
+            if found:
+                break
+        if not found:
+            return []
+    # falls goal nicht frei, auch nearest free
+    if not is_free(goal_px):
+        found = False
+        for r in range(1, 40):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if abs(dx) != r and abs(dy) != r:
+                        continue
+                    p = (goal_px[0] + dx, goal_px[1] + dy)
+                    if is_free(p):
+                        goal_px = p
+                        found = True
+                        break
+                if found:
+                    break
+            if found:
+                break
+        if not found:
             return []
 
     h_func = lambda p: math.hypot(p[0] - goal_px[0], p[1] - goal_px[1])
@@ -93,14 +128,14 @@ class FrontierExplorer(Node):
         super().__init__('frontier_explorer')
 
         self.declare_parameter('linear_speed', 0.2)
-        self.declare_parameter('angular_speed', 0.8)
-        self.declare_parameter('waypoint_tol', 0.15)
-        self.declare_parameter('safety_distance', 0.22)
+        self.declare_parameter('angular_speed', 0.7)
+        self.declare_parameter('waypoint_tol', 0.25)
+        self.declare_parameter('safety_distance', 0.18)
         self.declare_parameter('replan_period', 3.0)
         self.declare_parameter('min_frontier_size', 4)
         self.declare_parameter('goal_x', 9.5)
         self.declare_parameter('goal_y', 9.5)
-        self.declare_parameter('stuck_timeout', 4.0)
+        self.declare_parameter('stuck_timeout', 5.0)
 
         self.lin_speed = self.get_parameter('linear_speed').value
         self.ang_speed = self.get_parameter('angular_speed').value
@@ -127,8 +162,11 @@ class FrontierExplorer(Node):
         map_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL, depth=1)
         self.create_subscription(OccupancyGrid, '/map', self.cb_map, map_qos)
-        self.create_subscription(Odometry, '/odom', self.cb_odom, 10)
         self.create_subscription(LaserScan, '/scan', self.cb_scan, 10)
+
+        # tf2 fuer map->base_link lookup (drift-korrigierte position)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.pub_cmd = self.create_publisher(Twist, '/cmd_vel', 10)
         self.pub_markers = self.create_publisher(MarkerArray, '/frontier_markers', 10)
@@ -140,13 +178,22 @@ class FrontierExplorer(Node):
     def cb_map(self, m):
         self.map = m
 
-    def cb_odom(self, m):
-        p = m.pose.pose.position
-        q = m.pose.pose.orientation
-        siny = 2.0 * (q.w * q.z + q.x * q.y)
-        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        yaw = math.atan2(siny, cosy)
-        self.pose = (p.x, p.y, yaw)
+    def update_pose_from_tf(self):
+        """frischer pose aus map->base_link transform (drift-korrigiert)."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'map', 'base_link', rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.1))
+            x = t.transform.translation.x
+            y = t.transform.translation.y
+            q = t.transform.rotation
+            siny = 2.0 * (q.w * q.z + q.x * q.y)
+            cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+            yaw = math.atan2(siny, cosy)
+            self.pose = (x, y, yaw)
+            return True
+        except Exception:
+            return False
 
     def cb_scan(self, m):
         n = len(m.ranges)
@@ -162,32 +209,41 @@ class FrontierExplorer(Node):
             self.scan_min[name] = min(valid) if valid else float('inf')
 
     def tick(self):
-        if self.map is None or self.pose is None:
+        if self.map is None:
             return
+        if not self.update_pose_from_tf():
+            return  # noch kein map->base_link tf
 
         now = time.time()
 
-        # stuck detection: position aendert sich nicht mehr
+        # stuck detection: weder position noch yaw aendern sich
         if self.last_progress_pose is None:
             self.last_progress_pose = self.pose
             self.last_progress_time = now
         else:
             dx = self.pose[0] - self.last_progress_pose[0]
             dy = self.pose[1] - self.last_progress_pose[1]
-            if math.hypot(dx, dy) > 0.05:
+            dyaw = abs(wrap(self.pose[2] - self.last_progress_pose[2]))
+            if math.hypot(dx, dy) > 0.05 or dyaw > 0.3:
                 self.last_progress_pose = self.pose
                 self.last_progress_time = now
             elif now - self.last_progress_time > self.stuck_timeout and self.recovery_until < now:
                 self.get_logger().warn('stuck detected, recovery')
-                self.recovery_until = now + 2.5
+                self.recovery_until = now + 4.0
                 self.recovery_dir = 1 if self.scan_min['left'] > self.scan_min['right'] else -1
-                self.path = []  # force replan
+                self.path = []
+                self.last_progress_time = now
 
-        # recovery: drehe + zurueck
+        # recovery: erst zurueck, dann drehen
         if now < self.recovery_until:
             cmd = Twist()
-            cmd.linear.x = -0.05
-            cmd.angular.z = self.ang_speed * self.recovery_dir
+            time_in_recovery = self.recovery_until - now
+            if time_in_recovery > 4.5:
+                # erste 1.5 sek: zurueckfahren
+                cmd.linear.x = -0.1
+            else:
+                # dann drehen
+                cmd.angular.z = self.ang_speed * self.recovery_dir
             self.pub_cmd.publish(cmd)
             return
 
@@ -246,6 +302,9 @@ class FrontierExplorer(Node):
         sy_px = int(round((y - m.info.origin.position.y) / m.info.resolution))
         path_px = astar_grid(m.data, m.info.width, m.info.height,
                              (sx_px, sy_px), goal_px)
+        if not path_px:
+            self.get_logger().warn(
+                f'A* failed: from ({sx_px},{sy_px}) to {goal_px}')
         # convert to world
         self.path = []
         for px, py in path_px[::4]:  # alle 4 cells einen waypoint = sparsam
