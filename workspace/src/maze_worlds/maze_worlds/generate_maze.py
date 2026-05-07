@@ -42,9 +42,9 @@ def generate_grid(size, seed=None):
         visited.add((nx, ny))
         stack.append((nx, ny))
 
-    # entry / exit aufmachen
-    cells[(0, 0)].discard('S')
-    cells[(size - 1, size - 1)].discard('N')
+    # KEIN entry/exit aufmachen - maze geschlossen damit bot nicht rausfaehrt
+    # (start und goal sind innerhalb cell (0,0) und (size-1, size-1))
+    pass
 
     return cells
 
