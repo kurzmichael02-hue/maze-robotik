@@ -150,6 +150,9 @@ class FrontierExplorer(Node):
         self.recovery_dir = 1
         self.stuck_count = 0
         self.blacklist = []  # liste von (px, py, until_time) die gemeden werden
+        self.random_walk_until = 0.0
+        self.random_walk_dir = 1
+        self.random_walk_change = 0.0
 
         map_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL, depth=1)
@@ -208,44 +211,62 @@ class FrontierExplorer(Node):
 
         now = time.time()
 
-        # stuck detection: weder position noch yaw aendern sich
+        # stuck detection: NUR position aendert sich (drehen != progress)
         if self.last_progress_pose is None:
             self.last_progress_pose = self.pose
             self.last_progress_time = now
         else:
             dx = self.pose[0] - self.last_progress_pose[0]
             dy = self.pose[1] - self.last_progress_pose[1]
-            dyaw = abs(wrap(self.pose[2] - self.last_progress_pose[2]))
-            if math.hypot(dx, dy) > 0.05 or dyaw > 0.3:
+            if math.hypot(dx, dy) > 0.08:
                 self.last_progress_pose = self.pose
                 self.last_progress_time = now
-                # bei genug fahrt: stuck-counter zuruecksetzen
                 if math.hypot(dx, dy) > 0.5:
                     self.stuck_count = 0
-            elif now - self.last_progress_time > self.stuck_timeout and self.recovery_until < now:
+            elif now - self.last_progress_time > self.stuck_timeout and self.recovery_until < now and self.random_walk_until < now:
                 self.stuck_count += 1
                 self.get_logger().warn(f'stuck #{self.stuck_count}')
-                # backup + drehen, mehr drehen bei wiederholtem stuck
-                turn_time = 3.0 + min(self.stuck_count, 3) * 1.5
-                self.recovery_until = now + 1.5 + turn_time
-                self.recovery_dir = 1 if self.scan_min['left'] > self.scan_min['right'] else -1
                 self.path = []
                 self.last_progress_time = now
-                # blacklist die aktuelle position fuer 30 sek
                 if self.map:
                     px = int((self.pose[0] - self.map.info.origin.position.x) / self.map.info.resolution)
                     py = int((self.pose[1] - self.map.info.origin.position.y) / self.map.info.resolution)
-                    self.blacklist.append((px, py, now + 30))
+                    self.blacklist.append((px, py, now + 60))
+
+                if self.stuck_count >= 3:
+                    # random walk fuer 10 sek - raus aus dead-zone
+                    self.get_logger().warn('-> random walk mode 10s')
+                    self.random_walk_until = now + 10.0
+                    self.stuck_count = 0
+                else:
+                    # normale recovery: backup + drehen
+                    self.recovery_until = now + 1.5 + 3.0
+                    self.recovery_dir = 1 if self.scan_min['left'] > self.scan_min['right'] else -1
 
         # recovery: erst 1.5 sek zurueck, dann drehen
         if now < self.recovery_until:
             cmd = Twist()
-            elapsed_recovery = (self.recovery_until - now)
-            total_recovery = 1.5 + (3.0 + min(self.stuck_count, 3) * 1.5)
-            if elapsed_recovery > total_recovery - 1.5:
+            time_left = self.recovery_until - now
+            if time_left > 3.0:
                 cmd.linear.x = -0.12
             else:
                 cmd.angular.z = self.ang_speed * self.recovery_dir
+            self.pub_cmd.publish(cmd)
+            return
+
+        # random walk: bot faehrt mit periodisch wechselnder richtung
+        if now < self.random_walk_until:
+            if now > self.random_walk_change:
+                import random as rnd
+                self.random_walk_dir = rnd.choice([-1, 0, 1])
+                self.random_walk_change = now + rnd.uniform(1.5, 3.0)
+            cmd = Twist()
+            if self.scan_min['front'] < self.safety:
+                cmd.linear.x = -0.1
+                cmd.angular.z = self.ang_speed * (1 if self.scan_min['left'] > self.scan_min['right'] else -1)
+            else:
+                cmd.linear.x = self.lin_speed * 0.7
+                cmd.angular.z = self.ang_speed * 0.5 * self.random_walk_dir
             self.pub_cmd.publish(cmd)
             return
 
