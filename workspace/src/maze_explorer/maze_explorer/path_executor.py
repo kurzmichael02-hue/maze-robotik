@@ -16,7 +16,6 @@ import heapq
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import Twist, PoseStamped
@@ -170,11 +169,20 @@ class PathExecutor(Node):
             self.cell_path = cell_path
             self.get_logger().info(f'A* path: {len(cell_path)} cells')
 
-        # convert cell-path zu world-waypoints (cell-center)
-        self.waypoints = [
-            (0.5 * cs + c[0] * cs, 0.5 * cs + c[1] * cs)
-            for c in cell_path
-        ]
+        # convert cell-path zu ODOM-frame waypoints
+        # spawn world pose: (start_x, start_y, yaw=pi/2)
+        # odom origin = spawn -> world_to_odom: rotate by -pi/2, translate
+        # ox = wy - sy
+        # oy = sx - wx
+        sx = 0.5 * cs
+        sy = 0.5 * cs
+        self.waypoints = []
+        for c in cell_path:
+            wx = 0.5 * cs + c[0] * cs
+            wy = 0.5 * cs + c[1] * cs
+            ox = wy - sy
+            oy = sx - wx
+            self.waypoints.append((ox, oy))
         self.wp_idx = 0
         self.pose = None  # (x, y, yaw)
         self.state = 'WAIT_POSE'  # WAIT_POSE -> TURN -> DRIVE -> DONE
@@ -253,11 +261,11 @@ class PathExecutor(Node):
             return
 
     def start_to_next(self):
-        cur_cell = self.cell_path[self.wp_idx - 1]
-        next_cell = self.cell_path[self.wp_idx]
-        d = cells_to_dir(cur_cell, next_cell)
-        self.target_yaw = DIR_YAW[d]
+        # target_yaw aus odom-coords berechnen (kein world-frame issue)
         self.target_xy = self.waypoints[self.wp_idx]
+        x, y, _ = self.pose
+        tx, ty = self.target_xy
+        self.target_yaw = math.atan2(ty - y, tx - x)
         self.state = 'TURN'
 
     def publish_path(self):
