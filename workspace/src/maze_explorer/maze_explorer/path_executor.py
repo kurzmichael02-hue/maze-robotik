@@ -142,8 +142,8 @@ class PathExecutor(Node):
         self.declare_parameter('cell_size', 1.2)
         self.declare_parameter('seed', 7)
         self.declare_parameter('difficulty', 'easy')
-        self.declare_parameter('linear_speed', 0.3)
-        self.declare_parameter('angular_speed', 1.0)
+        self.declare_parameter('linear_speed', 0.5)
+        self.declare_parameter('angular_speed', 1.5)
 
         size = self.get_parameter('maze_size').value
         cs = self.get_parameter('cell_size').value

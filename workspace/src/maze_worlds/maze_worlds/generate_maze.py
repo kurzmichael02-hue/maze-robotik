@@ -42,7 +42,9 @@ def generate_grid(size, seed=None, extra_passages_factor=0.20):
         visited.add((nx, ny))
         stack.append((nx, ny))
 
-    # KEIN entry/exit aufmachen - maze geschlossen damit bot nicht rausfaehrt
+    # entry am start (S), exit am ziel (N) - visuell klarer was anfang/ende ist
+    cells[(0, 0)].discard('S')
+    cells[(size - 1, size - 1)].discard('N')
 
     # extra durchgaenge oeffnen damit es MEHRERE pfade von start zu ziel gibt.
     # sonst ist algo-vergleich sinnlos (alle finden den einen weg).
