@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-package_name = 'maze_worlds'
+package_name = 'maze_explorer'
 
 setup(
     name=package_name,
@@ -12,20 +12,18 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name, 'worlds'), glob('worlds/*.sdf')),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
-        (os.path.join('share', package_name, 'urdf'), glob('urdf/*.xacro')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Michael Kurz',
     maintainer_email='kurzmichael02@gmail.com',
-    description='maze generation + gazebo worlds',
+    description='frontier exploration + slam config',
     license='MIT',
     entry_points={
         'console_scripts': [
-            'generate_maze = maze_worlds.generate_maze:main',
+            'frontier_explorer = maze_explorer.frontier_explorer:main',
         ],
     },
 )

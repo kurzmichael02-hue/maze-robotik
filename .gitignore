@@ -3,8 +3,9 @@ workspace/build/
 workspace/install/
 workspace/log/
 
-# generated mazes (jeder generiert selbst)
-workspace/src/maze_worlds/worlds/
+# generated mazes (jeder generiert selbst, ausser maze.sdf default)
+workspace/src/maze_worlds/worlds/*.sdf
+!workspace/src/maze_worlds/worlds/maze.sdf
 
 # python
 __pycache__/
