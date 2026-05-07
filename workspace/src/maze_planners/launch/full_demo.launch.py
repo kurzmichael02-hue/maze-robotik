@@ -59,12 +59,19 @@ def generate_launch_description():
         condition=UnlessCondition(headless),
     )
 
-    # 4. frontier explorer
+    # 4. path executor (deterministischer demo-fahrer)
+    # alternative: frontier_explorer wenn man slam-exploration sehen will
     frontier = Node(
         package='maze_explorer',
-        executable='frontier_explorer',
+        executable='path_executor',
         output='screen',
-        parameters=[{'use_sim_time': True}],
+        parameters=[{
+            'use_sim_time': True,
+            'maze_size': 8,
+            'cell_size': 1.2,
+            'seed': 7,
+            'difficulty': 'easy',
+        }],
     )
 
     # 5. planner node

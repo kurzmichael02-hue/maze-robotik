@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'frontier_explorer = maze_explorer.frontier_explorer:main',
+            'path_executor = maze_explorer.path_executor:main',
         ],
     },
 )
