@@ -277,7 +277,8 @@ def walls_to_sdf(walls, size, cell_size, wall_height=1.2, wall_thickness=0.08):
       <pose>{goal_x} {goal_y} 0.005 0 0 0</pose>
     </model>"""
 
-    bot = bot_sdf(start_x, start_y - 0.1, yaw=1.5708)
+    # spawn IN cell (0,0) damit bot direkt im maze ist, schaut nach norden
+    bot = bot_sdf(start_x, 0.5, yaw=1.5708)
 
     sdf = f"""<?xml version="1.0"?>
 <sdf version="1.9">
