@@ -117,15 +117,15 @@ class FrontierExplorer(Node):
     def __init__(self):
         super().__init__('frontier_explorer')
 
-        self.declare_parameter('linear_speed', 0.18)
-        self.declare_parameter('angular_speed', 0.6)
-        self.declare_parameter('waypoint_tol', 0.22)
-        self.declare_parameter('safety_distance', 0.13)
+        self.declare_parameter('linear_speed', 0.2)
+        self.declare_parameter('angular_speed', 0.7)
+        self.declare_parameter('waypoint_tol', 0.25)
+        self.declare_parameter('safety_distance', 0.10)
         self.declare_parameter('replan_period', 3.0)
         self.declare_parameter('min_frontier_size', 4)
-        self.declare_parameter('goal_x', 9.5)
-        self.declare_parameter('goal_y', 9.5)
-        self.declare_parameter('stuck_timeout', 5.0)
+        self.declare_parameter('goal_x', 9.0)
+        self.declare_parameter('goal_y', 9.0)
+        self.declare_parameter('stuck_timeout', 4.0)
 
         self.lin_speed = self.get_parameter('linear_speed').value
         self.ang_speed = self.get_parameter('angular_speed').value

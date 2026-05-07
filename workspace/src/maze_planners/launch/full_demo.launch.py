@@ -74,8 +74,10 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'use_sim_time': True,
-            'cell_size': 1.0,
-            'maze_size': 10,  # TODO: aus launch arg
+            'cell_size': 1.2,
+            'maze_size': 8,
+            'start_world_x': 0.6,
+            'start_world_y': 0.6,
         }],
     )
 
