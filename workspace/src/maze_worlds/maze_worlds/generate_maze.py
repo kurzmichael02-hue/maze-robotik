@@ -68,6 +68,149 @@ def cells_to_walls(cells, size, cell_size):
     return walls
 
 
+def bot_sdf(start_x, start_y, yaw=1.5708):
+    """maze_bot als inline-sdf — wird direkt in die welt gepackt
+    damit das spawn nicht über ros_gz_sim laufen muss."""
+    return f"""
+    <model name="maze_bot">
+      <pose>{start_x} {start_y} 0.05 0 0 {yaw}</pose>
+
+      <link name="base_link">
+        <inertial>
+          <mass>2.0</mass>
+          <inertia><ixx>0.02</ixx><iyy>0.025</iyy><izz>0.03</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="c"><geometry><box><size>0.30 0.25 0.10</size></box></geometry></collision>
+        <visual name="v">
+          <geometry><box><size>0.30 0.25 0.10</size></box></geometry>
+          <material>
+            <ambient>0.05 0.2 0.5 1</ambient>
+            <diffuse>0.1 0.4 0.9 1</diffuse>
+            <specular>0.2 0.4 0.9 1</specular>
+          </material>
+        </visual>
+      </link>
+
+      <link name="left_wheel">
+        <pose>0 0.15 -0.05 0 0 0</pose>
+        <inertial>
+          <mass>0.2</mass>
+          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="c">
+          <pose>0 0 0 1.5708 0 0</pose>
+          <geometry><cylinder><radius>0.04</radius><length>0.025</length></cylinder></geometry>
+        </collision>
+        <visual name="v">
+          <pose>0 0 0 1.5708 0 0</pose>
+          <geometry><cylinder><radius>0.04</radius><length>0.025</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+        </visual>
+      </link>
+
+      <link name="right_wheel">
+        <pose>0 -0.15 -0.05 0 0 0</pose>
+        <inertial>
+          <mass>0.2</mass>
+          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="c">
+          <pose>0 0 0 1.5708 0 0</pose>
+          <geometry><cylinder><radius>0.04</radius><length>0.025</length></cylinder></geometry>
+        </collision>
+        <visual name="v">
+          <pose>0 0 0 1.5708 0 0</pose>
+          <geometry><cylinder><radius>0.04</radius><length>0.025</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+        </visual>
+      </link>
+
+      <link name="caster">
+        <pose>0.11 0 -0.07 0 0 0</pose>
+        <inertial>
+          <mass>0.05</mass>
+          <inertia><ixx>0.00001</ixx><iyy>0.00001</iyy><izz>0.00001</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="c"><geometry><sphere><radius>0.02</radius></sphere></geometry>
+          <surface><friction><ode><mu>0.0</mu><mu2>0.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="v"><geometry><sphere><radius>0.02</radius></sphere></geometry></visual>
+      </link>
+
+      <link name="lidar_link">
+        <pose>0 0 0.07 0 0 0</pose>
+        <inertial>
+          <mass>0.1</mass>
+          <inertia><ixx>0.0001</ixx><iyy>0.0001</iyy><izz>0.0001</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <visual name="v">
+          <geometry><cylinder><radius>0.04</radius><length>0.04</length></cylinder></geometry>
+          <material><ambient>0.6 0.05 0.05 1</ambient><diffuse>0.9 0.1 0.1 1</diffuse></material>
+        </visual>
+        <sensor name="lidar" type="gpu_lidar">
+          <update_rate>10</update_rate>
+          <topic>scan</topic>
+          <gz_frame_id>lidar_link</gz_frame_id>
+          <ray>
+            <scan>
+              <horizontal>
+                <samples>360</samples>
+                <resolution>1</resolution>
+                <min_angle>-3.14159</min_angle>
+                <max_angle>3.14159</max_angle>
+              </horizontal>
+              <vertical><samples>1</samples><min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+            </scan>
+            <range><min>0.08</min><max>8.0</max><resolution>0.01</resolution></range>
+          </ray>
+          <always_on>1</always_on>
+          <visualize>true</visualize>
+        </sensor>
+      </link>
+
+      <joint name="left_wheel_joint" type="revolute">
+        <parent>base_link</parent><child>left_wheel</child>
+        <axis><xyz>0 1 0</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+      <joint name="right_wheel_joint" type="revolute">
+        <parent>base_link</parent><child>right_wheel</child>
+        <axis><xyz>0 1 0</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+      <joint name="caster_joint" type="fixed">
+        <parent>base_link</parent><child>caster</child>
+      </joint>
+      <joint name="lidar_joint" type="fixed">
+        <parent>base_link</parent><child>lidar_link</child>
+      </joint>
+
+      <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+        <left_joint>left_wheel_joint</left_joint>
+        <right_joint>right_wheel_joint</right_joint>
+        <wheel_separation>0.30</wheel_separation>
+        <wheel_radius>0.04</wheel_radius>
+        <topic>cmd_vel</topic>
+        <odom_topic>odom</odom_topic>
+        <frame_id>odom</frame_id>
+        <child_frame_id>base_link</child_frame_id>
+        <odom_publish_frequency>30</odom_publish_frequency>
+        <tf_topic>tf</tf_topic>
+      </plugin>
+
+      <plugin filename="gz-sim-joint-state-publisher-system"
+              name="gz::sim::systems::JointStatePublisher">
+        <topic>joint_states</topic>
+      </plugin>
+
+      <plugin filename="gz-sim-pose-publisher-system"
+              name="gz::sim::systems::PosePublisher">
+        <publish_link_pose>true</publish_link_pose>
+        <use_pose_vector_msg>true</use_pose_vector_msg>
+        <static_publisher>true</static_publisher>
+        <static_update_frequency>10</static_update_frequency>
+      </plugin>
+    </model>"""
+
+
 def walls_to_sdf(walls, size, cell_size, wall_height=1.2, wall_thickness=0.08):
     boxes = []
     for i, (x, y, length, orient) in enumerate(walls):
@@ -134,6 +277,8 @@ def walls_to_sdf(walls, size, cell_size, wall_height=1.2, wall_thickness=0.08):
       <pose>{goal_x} {goal_y} 0.005 0 0 0</pose>
     </model>"""
 
+    bot = bot_sdf(start_x, start_y - 0.1, yaw=1.5708)
+
     sdf = f"""<?xml version="1.0"?>
 <sdf version="1.9">
   <world name="maze">
@@ -199,6 +344,7 @@ def walls_to_sdf(walls, size, cell_size, wall_height=1.2, wall_thickness=0.08):
     </model>
 {markers}
 {''.join(boxes)}
+{bot}
   </world>
 </sdf>
 """
