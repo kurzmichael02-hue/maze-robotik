@@ -13,6 +13,8 @@ xhost +local:docker > /dev/null 2>&1 || true
 docker run -it --rm \
     --name maze_robotik \
     --net=host \
+    --shm-size=2g \
+    --ipc=host \
     -e DISPLAY="$DISPLAY" \
     -e QT_X11_NO_MITSHM=1 \
     -e XDG_RUNTIME_DIR=/tmp \

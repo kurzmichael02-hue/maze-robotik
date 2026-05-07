@@ -17,6 +17,8 @@ Write-Host "Display target: ${hostIp}:0.0"
 
 docker run -it --rm `
     --name maze_robotik `
+    --shm-size=2g `
+    --ipc=host `
     -e DISPLAY="${hostIp}:0.0" `
     -e LIBGL_ALWAYS_SOFTWARE=1 `
     -e MESA_GL_VERSION_OVERRIDE=3.3 `
