@@ -43,8 +43,32 @@ def generate_grid(size, seed=None):
         stack.append((nx, ny))
 
     # KEIN entry/exit aufmachen - maze geschlossen damit bot nicht rausfaehrt
-    # (start und goal sind innerhalb cell (0,0) und (size-1, size-1))
-    pass
+
+    # extra durchgaenge oeffnen damit es MEHRERE pfade von start zu ziel gibt.
+    # sonst ist algo-vergleich sinnlos (alle finden den einen weg).
+    # wir entfernen ~20% der INNEREN walls.
+    inner_walls = []
+    for (x, y), w in cells.items():
+        for d in list(w):
+            dx, dy = delta[d]
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < size and 0 <= ny < size:
+                # innere wall, kein rand
+                inner_walls.append(((x, y), d, (nx, ny)))
+    # dedup
+    seen = set()
+    unique = []
+    for a, d, b in inner_walls:
+        key = tuple(sorted([a, b]))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((a, d, b))
+    n_remove = max(1, int(0.2 * len(unique)))
+    random.shuffle(unique)
+    for (x, y), d, (nx, ny) in unique[:n_remove]:
+        cells[(x, y)].discard(d)
+        cells[(nx, ny)].discard(opp[d])
 
     return cells
 

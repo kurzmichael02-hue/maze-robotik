@@ -1,173 +1,295 @@
-"""frontier explorer — bot fährt selbständig durch unbekanntes maze.
+"""frontier explorer mit A* pfadplanung + stuck-recovery.
 
-algo:
-1. abonniere /map (slam_toolbox output)
-2. find frontiers: freie zellen die an unknown grenzen
-3. cluster, pick größtes / nächstes
-4. simpler reactive controller: rotate to goal, drive forward, stop near
-5. wenn keine frontiers mehr -> finished
+states:
+  EXPLORING - bot sucht frontiers, faehrt zur naechsten
+  GOING_TO_GOAL - exploration fertig, bot faehrt vom start zum goal-marker
+  DONE - am ziel angekommen
 
-KEIN nav2 dependency - eigener controller. simpler aber für ein offenes maze
-gut genug.
+improvements ggue dem reactive ansatz:
+  - A* auf der occupancy-grid statt direkter linie
+  - stuck-detection: wenn position 4 sek nicht aendert -> recovery rotation
+  - 360-grad safety check (nicht nur vorne)
 """
 import math
 import time
+import heapq
 from collections import deque
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
-from nav_msgs.msg import OccupancyGrid, Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from sensor_msgs.msg import LaserScan
-from geometry_msgs.msg import Twist, Point
+from geometry_msgs.msg import Twist, Point, PoseStamped
 from std_msgs.msg import ColorRGBA
 from visualization_msgs.msg import Marker, MarkerArray
 
 
-# occupancy grid values
 UNKNOWN = -1
-FREE_THRESH = 50  # < 50 = free, >= 50 = occupied
+FREE_THRESH = 50
+INFLATION_RADIUS = 2  # cells around walls to mark as no-go
+
+
+def astar_grid(occ, w, h, start_px, goal_px, inflation=INFLATION_RADIUS):
+    """A* auf der occupancy grid. start/goal sind pixel-coords."""
+    def at(p):
+        x, y = p
+        if x < 0 or y < 0 or x >= w or y >= h:
+            return 100
+        return occ[y * w + x]
+
+    def is_free(p):
+        v = at(p)
+        return 0 <= v < FREE_THRESH
+
+    # inflation: cells nahe an wand sind blocked
+    def is_safe(p):
+        if not is_free(p):
+            return False
+        x, y = p
+        for dx in range(-inflation, inflation + 1):
+            for dy in range(-inflation, inflation + 1):
+                if at((x + dx, y + dy)) >= FREE_THRESH:
+                    return False
+        return True
+
+    if not is_safe(start_px):
+        # fallback: kleinere inflation oder einfach freie zelle
+        if not is_free(start_px):
+            return []
+
+    h_func = lambda p: math.hypot(p[0] - goal_px[0], p[1] - goal_px[1])
+    open_h = [(h_func(start_px), 0, start_px)]
+    came = {start_px: None}
+    g = {start_px: 0}
+    counter = 0
+
+    while open_h:
+        _, _, cur = heapq.heappop(open_h)
+        if cur == goal_px or math.hypot(cur[0] - goal_px[0], cur[1] - goal_px[1]) < 3:
+            path = []
+            while cur is not None:
+                path.append(cur)
+                cur = came[cur]
+            path.reverse()
+            return path
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]:
+            nb = (cur[0] + dx, cur[1] + dy)
+            if not is_safe(nb):
+                continue
+            cost = 1.4 if dx and dy else 1.0
+            tg = g[cur] + cost
+            if tg < g.get(nb, float('inf')):
+                g[nb] = tg
+                came[nb] = cur
+                counter += 1
+                heapq.heappush(open_h, (tg + h_func(nb), counter, nb))
+    return []
 
 
 class FrontierExplorer(Node):
     def __init__(self):
         super().__init__('frontier_explorer')
 
-        # params
-        self.declare_parameter('linear_speed', 0.15)
-        self.declare_parameter('angular_speed', 0.6)
-        self.declare_parameter('goal_tol', 0.25)
-        self.declare_parameter('safety_distance', 0.25)
-        self.declare_parameter('replan_period', 2.0)
+        self.declare_parameter('linear_speed', 0.2)
+        self.declare_parameter('angular_speed', 0.8)
+        self.declare_parameter('waypoint_tol', 0.15)
+        self.declare_parameter('safety_distance', 0.22)
+        self.declare_parameter('replan_period', 3.0)
         self.declare_parameter('min_frontier_size', 4)
+        self.declare_parameter('goal_x', 9.5)
+        self.declare_parameter('goal_y', 9.5)
+        self.declare_parameter('stuck_timeout', 4.0)
 
         self.lin_speed = self.get_parameter('linear_speed').value
         self.ang_speed = self.get_parameter('angular_speed').value
-        self.goal_tol = self.get_parameter('goal_tol').value
+        self.wp_tol = self.get_parameter('waypoint_tol').value
         self.safety = self.get_parameter('safety_distance').value
         self.replan_period = self.get_parameter('replan_period').value
         self.min_cluster = self.get_parameter('min_frontier_size').value
+        self.goal_world = (self.get_parameter('goal_x').value,
+                           self.get_parameter('goal_y').value)
+        self.stuck_timeout = self.get_parameter('stuck_timeout').value
 
-        # state
         self.map = None
-        self.pose = None  # (x, y, yaw) in map frame, simplified
-        self.scan_min_front = float('inf')
-        self.current_goal = None  # (x, y) in world
-        self.exploring = True
+        self.pose = None
+        self.scan_min = {'front': float('inf'), 'left': float('inf'), 'right': float('inf')}
+        self.path = []  # list of world coords
+        self.path_index = 0
+        self.state = 'EXPLORING'
         self.last_replan = 0.0
+        self.last_progress_pose = None
+        self.last_progress_time = time.time()
+        self.recovery_until = 0.0
+        self.recovery_dir = 1
 
-        # qos: map ist transient_local
-        map_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            depth=1,
-        )
-
-        self.sub_map = self.create_subscription(OccupancyGrid, '/map', self.cb_map, map_qos)
-        self.sub_odom = self.create_subscription(Odometry, '/odom', self.cb_odom, 10)
-        self.sub_scan = self.create_subscription(LaserScan, '/scan', self.cb_scan, 10)
+        map_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.TRANSIENT_LOCAL, depth=1)
+        self.create_subscription(OccupancyGrid, '/map', self.cb_map, map_qos)
+        self.create_subscription(Odometry, '/odom', self.cb_odom, 10)
+        self.create_subscription(LaserScan, '/scan', self.cb_scan, 10)
 
         self.pub_cmd = self.create_publisher(Twist, '/cmd_vel', 10)
         self.pub_markers = self.create_publisher(MarkerArray, '/frontier_markers', 10)
+        self.pub_path = self.create_publisher(Path, '/planned_path', 10)
 
         self.timer = self.create_timer(0.1, self.tick)
-        self.get_logger().info('frontier_explorer up')
+        self.get_logger().info(f'frontier_explorer up, goal=({self.goal_world})')
 
-    # --- callbacks ---
-    def cb_map(self, msg: OccupancyGrid):
-        self.map = msg
+    def cb_map(self, m):
+        self.map = m
 
-    def cb_odom(self, msg: Odometry):
-        p = msg.pose.pose.position
-        q = msg.pose.pose.orientation
-        # quaternion -> yaw
-        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        yaw = math.atan2(siny_cosp, cosy_cosp)
+    def cb_odom(self, m):
+        p = m.pose.pose.position
+        q = m.pose.pose.orientation
+        siny = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        yaw = math.atan2(siny, cosy)
         self.pose = (p.x, p.y, yaw)
 
-    def cb_scan(self, msg: LaserScan):
-        # min range im 60° kegel vorne
-        n = len(msg.ranges)
+    def cb_scan(self, m):
+        n = len(m.ranges)
         if n == 0:
             return
-        # vorne ist normalerweise index 0 oder n/2 - hängt vom lidar frame ab
-        # bei 360-grad lidar mit -pi..pi: vorne = mittlere index (yaw=0)
-        # sicherheits-fallback: nimm min in den ersten 30 + letzten 30 indices
-        front_idxs = list(range(30)) + list(range(n - 30, n))
-        valid = [r for i, r in enumerate(msg.ranges) if i in front_idxs and msg.range_min < r < msg.range_max]
-        self.scan_min_front = min(valid) if valid else float('inf')
+        # 30° vorne, 60° links, 60° rechts
+        front = list(range(n - 15, n)) + list(range(15))
+        left = list(range(n // 4 - 30, n // 4 + 30))
+        right = list(range(3 * n // 4 - 30, 3 * n // 4 + 30))
+        for name, idxs in [('front', front), ('left', left), ('right', right)]:
+            valid = [m.ranges[i] for i in idxs if 0 <= i < n
+                     and m.range_min < m.ranges[i] < m.range_max]
+            self.scan_min[name] = min(valid) if valid else float('inf')
 
-    # --- main loop ---
     def tick(self):
         if self.map is None or self.pose is None:
             return
 
-        # safety: hindernis vor uns
-        if self.scan_min_front < self.safety:
-            self.stop()
-            # replan sofort
-            self.replan()
+        now = time.time()
+
+        # stuck detection: position aendert sich nicht mehr
+        if self.last_progress_pose is None:
+            self.last_progress_pose = self.pose
+            self.last_progress_time = now
+        else:
+            dx = self.pose[0] - self.last_progress_pose[0]
+            dy = self.pose[1] - self.last_progress_pose[1]
+            if math.hypot(dx, dy) > 0.05:
+                self.last_progress_pose = self.pose
+                self.last_progress_time = now
+            elif now - self.last_progress_time > self.stuck_timeout and self.recovery_until < now:
+                self.get_logger().warn('stuck detected, recovery')
+                self.recovery_until = now + 2.5
+                self.recovery_dir = 1 if self.scan_min['left'] > self.scan_min['right'] else -1
+                self.path = []  # force replan
+
+        # recovery: drehe + zurueck
+        if now < self.recovery_until:
+            cmd = Twist()
+            cmd.linear.x = -0.05
+            cmd.angular.z = self.ang_speed * self.recovery_dir
+            self.pub_cmd.publish(cmd)
             return
 
-        now = time.time()
-        # periodisch oder wenn kein goal
-        if self.current_goal is None or (now - self.last_replan) > self.replan_period:
-            self.replan()
+        if self.state == 'EXPLORING':
+            self.do_explore(now)
+        elif self.state == 'GOING_TO_GOAL':
+            self.do_goal()
+
+    def do_explore(self, now):
+        if not self.path or (now - self.last_replan) > self.replan_period:
+            frontiers = self.find_frontiers()
+            if not frontiers:
+                self.get_logger().info('no frontiers -> switching to GOING_TO_GOAL')
+                self.state = 'GOING_TO_GOAL'
+                self.path = []
+                self.publish_markers([])
+                return
+            biggest = max(frontiers, key=len)
+            cx = sum(p[0] for p in biggest) / len(biggest)
+            cy = sum(p[1] for p in biggest) / len(biggest)
+            self.publish_markers(frontiers)
+            # A* zum frontier-centroid
+            self.plan_to_pixel((int(cx), int(cy)))
             self.last_replan = now
 
-        if self.current_goal is None:
-            # keine frontier mehr => fertig
-            if self.exploring:
-                self.get_logger().info('no frontiers -> exploration finished')
-                self.exploring = False
+        self.follow_path()
+
+    def do_goal(self):
+        if not self.path:
+            gx, gy = self.goal_world
+            gx_px = int(round((gx - self.map.info.origin.position.x) / self.map.info.resolution))
+            gy_px = int(round((gy - self.map.info.origin.position.y) / self.map.info.resolution))
+            self.plan_to_pixel((gx_px, gy_px))
+            if not self.path:
+                self.get_logger().error('cannot plan to goal!')
                 self.stop()
+                return
+            self.publish_path_msg()
+            self.get_logger().info(f'plan to goal: {len(self.path)} waypoints')
+
+        # check ziel erreicht
+        x, y, _ = self.pose
+        gx, gy = self.goal_world
+        if math.hypot(x - gx, y - gy) < 0.4:
+            self.get_logger().info('GOAL REACHED!')
+            self.stop()
+            self.state = 'DONE'
             return
 
-        # drive zum goal
-        gx, gy = self.current_goal
-        x, y, yaw = self.pose
-        dx, dy = gx - x, gy - y
-        dist = math.hypot(dx, dy)
+        self.follow_path()
 
-        if dist < self.goal_tol:
-            self.current_goal = None
+    def plan_to_pixel(self, goal_px):
+        m = self.map
+        x, y, _ = self.pose
+        sx_px = int(round((x - m.info.origin.position.x) / m.info.resolution))
+        sy_px = int(round((y - m.info.origin.position.y) / m.info.resolution))
+        path_px = astar_grid(m.data, m.info.width, m.info.height,
+                             (sx_px, sy_px), goal_px)
+        # convert to world
+        self.path = []
+        for px, py in path_px[::4]:  # alle 4 cells einen waypoint = sparsam
+            wx = m.info.origin.position.x + (px + 0.5) * m.info.resolution
+            wy = m.info.origin.position.y + (py + 0.5) * m.info.resolution
+            self.path.append((wx, wy))
+        if path_px:
+            # final waypoint sicherstellen
+            px, py = path_px[-1]
+            wx = m.info.origin.position.x + (px + 0.5) * m.info.resolution
+            wy = m.info.origin.position.y + (py + 0.5) * m.info.resolution
+            if not self.path or self.path[-1] != (wx, wy):
+                self.path.append((wx, wy))
+        self.path_index = 0
+
+    def follow_path(self):
+        if not self.path:
+            return
+        if self.path_index >= len(self.path):
+            self.path = []
+            return
+        wx, wy = self.path[self.path_index]
+        x, y, yaw = self.pose
+        dx, dy = wx - x, wy - y
+        dist = math.hypot(dx, dy)
+        if dist < self.wp_tol:
+            self.path_index += 1
+            return
+
+        # safety check: hindernis vorne
+        if self.scan_min['front'] < self.safety:
             self.stop()
+            self.path = []  # force replan
             return
 
         target_yaw = math.atan2(dy, dx)
         yaw_err = wrap(target_yaw - yaw)
-
         cmd = Twist()
-        if abs(yaw_err) > 0.3:
-            # erst drehen
-            cmd.angular.z = self.ang_speed * (1.0 if yaw_err > 0 else -1.0)
+        if abs(yaw_err) > 0.4:
+            cmd.angular.z = self.ang_speed * (1 if yaw_err > 0 else -1)
         else:
             cmd.linear.x = self.lin_speed
             cmd.angular.z = max(-self.ang_speed, min(self.ang_speed, 1.5 * yaw_err))
         self.pub_cmd.publish(cmd)
-
-    # --- frontier detection ---
-    def replan(self):
-        frontiers = self.find_frontiers()
-        if not frontiers:
-            self.current_goal = None
-            self.publish_markers([])
-            return
-
-        # nimm größtes cluster
-        biggest = max(frontiers, key=len)
-        # centroid
-        cx = sum(p[0] for p in biggest) / len(biggest)
-        cy = sum(p[1] for p in biggest) / len(biggest)
-        # zelle -> world
-        gx, gy = self.cell_to_world(cx, cy)
-        self.current_goal = (gx, gy)
-        self.publish_markers(frontiers)
-        self.get_logger().info(
-            f'new goal: ({gx:.2f}, {gy:.2f}) from cluster size {len(biggest)} '
-            f'({len(frontiers)} clusters total)')
 
     def find_frontiers(self):
         m = self.map
@@ -177,53 +299,43 @@ class FrontierExplorer(Node):
         def at(x, y):
             return data[y * w + x]
 
-        # frontier zelle = free, mit mindestens einem unknown nachbarn
-        frontier_cells = set()
+        cells = set()
         for y in range(1, h - 1):
             for x in range(1, w - 1):
                 v = at(x, y)
                 if v < 0 or v >= FREE_THRESH:
                     continue
-                # check 4-nachbarn auf unknown
                 if (at(x + 1, y) == UNKNOWN or at(x - 1, y) == UNKNOWN
-                    or at(x, y + 1) == UNKNOWN or at(x, y - 1) == UNKNOWN):
-                    frontier_cells.add((x, y))
+                        or at(x, y + 1) == UNKNOWN or at(x, y - 1) == UNKNOWN):
+                    cells.add((x, y))
 
-        # cluster via flood fill
         clusters = []
         visited = set()
-        for cell in frontier_cells:
-            if cell in visited:
+        for c in cells:
+            if c in visited:
                 continue
             cluster = []
-            q = deque([cell])
-            visited.add(cell)
+            q = deque([c])
+            visited.add(c)
             while q:
                 cx, cy = q.popleft()
                 cluster.append((cx, cy))
-                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, 1), (1, -1), (-1, -1)]:
+                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1),
+                               (1, 1), (-1, 1), (1, -1), (-1, -1)]:
                     n = (cx + dx, cy + dy)
-                    if n in frontier_cells and n not in visited:
+                    if n in cells and n not in visited:
                         visited.add(n)
                         q.append(n)
             if len(cluster) >= self.min_cluster:
                 clusters.append(cluster)
         return clusters
 
-    def cell_to_world(self, cx, cy):
-        m = self.map
-        wx = m.info.origin.position.x + (cx + 0.5) * m.info.resolution
-        wy = m.info.origin.position.y + (cy + 0.5) * m.info.resolution
-        return wx, wy
-
     def publish_markers(self, clusters):
         ma = MarkerArray()
-        # delete-all
         d = Marker()
         d.action = Marker.DELETEALL
         ma.markers.append(d)
-
-        for i, cluster in enumerate(clusters):
+        for i, cl in enumerate(clusters):
             mk = Marker()
             mk.header.frame_id = self.map.header.frame_id if self.map else 'map'
             mk.header.stamp = self.get_clock().now().to_msg()
@@ -234,8 +346,9 @@ class FrontierExplorer(Node):
             mk.scale.x = 0.05
             mk.scale.y = 0.05
             mk.color = ColorRGBA(r=1.0, g=0.5, b=0.0, a=0.9)
-            for cx, cy in cluster:
-                wx, wy = self.cell_to_world(cx, cy)
+            for cx, cy in cl:
+                wx = self.map.info.origin.position.x + (cx + 0.5) * self.map.info.resolution
+                wy = self.map.info.origin.position.y + (cy + 0.5) * self.map.info.resolution
                 p = Point()
                 p.x = float(wx)
                 p.y = float(wy)
@@ -243,6 +356,19 @@ class FrontierExplorer(Node):
                 mk.points.append(p)
             ma.markers.append(mk)
         self.pub_markers.publish(ma)
+
+    def publish_path_msg(self):
+        path = Path()
+        path.header.frame_id = 'map'
+        path.header.stamp = self.get_clock().now().to_msg()
+        for wx, wy in self.path:
+            ps = PoseStamped()
+            ps.header = path.header
+            ps.pose.position.x = float(wx)
+            ps.pose.position.y = float(wy)
+            ps.pose.orientation.w = 1.0
+            path.poses.append(ps)
+        self.pub_path.publish(path)
 
     def stop(self):
         self.pub_cmd.publish(Twist())
