@@ -228,21 +228,20 @@ class FrontierExplorer(Node):
                 self.last_progress_pose = self.pose
                 self.last_progress_time = now
             elif now - self.last_progress_time > self.stuck_timeout and self.recovery_until < now:
-                self.get_logger().warn('stuck detected, recovery')
-                self.recovery_until = now + 4.0
+                self.get_logger().warn('stuck detected, full recovery')
+                # full backup 2s + dann ~270 grad drehen ~5s
+                self.recovery_until = now + 7.5
                 self.recovery_dir = 1 if self.scan_min['left'] > self.scan_min['right'] else -1
                 self.path = []
                 self.last_progress_time = now
 
-        # recovery: erst zurueck, dann drehen
+        # recovery: erst 2 sek zurueck, dann ~5 sek drehen (270 grad)
         if now < self.recovery_until:
             cmd = Twist()
-            time_in_recovery = self.recovery_until - now
-            if time_in_recovery > 4.5:
-                # erste 1.5 sek: zurueckfahren
-                cmd.linear.x = -0.1
+            time_left = self.recovery_until - now
+            if time_left > 5.5:
+                cmd.linear.x = -0.12
             else:
-                # dann drehen
                 cmd.angular.z = self.ang_speed * self.recovery_dir
             self.pub_cmd.publish(cmd)
             return
