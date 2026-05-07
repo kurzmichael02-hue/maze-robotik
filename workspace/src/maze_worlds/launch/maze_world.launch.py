@@ -11,7 +11,7 @@ import subprocess
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -24,9 +24,17 @@ def generate_launch_description():
         'world',
         default_value=os.path.join(pkg, 'worlds', 'maze.sdf'),
         description='path to .sdf world file (must contain maze_bot)')
+    headless_arg = DeclareLaunchArgument('headless', default_value='false')
 
+    # -s = server only (kein gui), wird genutzt wenn headless=true
     gz_sim = ExecuteProcess(
-        cmd=['gz', 'sim', '-r', '-v', '4', LaunchConfiguration('world')],
+        cmd=['bash', '-c',
+             'if [ "$HEADLESS" = "true" ]; then gz sim -s -r -v 4 "$WORLD"; '
+             'else gz sim -r -v 4 "$WORLD"; fi'],
+        additional_env={
+            'HEADLESS': LaunchConfiguration('headless'),
+            'WORLD': LaunchConfiguration('world'),
+        },
         output='screen'
     )
 

@@ -31,8 +31,6 @@
     </inertial>
   </xacro:macro>
 
-  <link name="base_footprint"/>
-
   <link name="base_link">
     <visual>
       <geometry><box size="${base_l} ${base_w} ${base_h}"/></geometry>
@@ -43,12 +41,6 @@
     </collision>
     <xacro:box_inertia m="2.0" x="${base_l}" y="${base_w}" z="${base_h}"/>
   </link>
-
-  <joint name="base_joint" type="fixed">
-    <parent link="base_footprint"/>
-    <child link="base_link"/>
-    <origin xyz="0 0 ${wheel_r + base_h/2}"/>
-  </joint>
 
   <!-- wheels -->
   <xacro:macro name="wheel" params="prefix y_offset">
