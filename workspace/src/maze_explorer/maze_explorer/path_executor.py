@@ -176,13 +176,21 @@ class PathExecutor(Node):
         # oy = sx - wx
         sx = 0.5 * cs
         sy = 0.5 * cs
+
+        def world_to_odom(wx, wy):
+            return (wy - sy, sx - wx)
+
         self.waypoints = []
         for c in cell_path:
             wx = 0.5 * cs + c[0] * cs
             wy = 0.5 * cs + c[1] * cs
-            ox = wy - sy
-            oy = sx - wx
-            self.waypoints.append((ox, oy))
+            self.waypoints.append(world_to_odom(wx, wy))
+
+        # extra waypoint: durch den exit raus zum goal_marker
+        last_cell = cell_path[-1]
+        exit_wx = 0.5 * cs + last_cell[0] * cs
+        exit_wy = size * cs + 0.4  # ausserhalb maze beim goal_marker
+        self.waypoints.append(world_to_odom(exit_wx, exit_wy))
         self.wp_idx = 0
         self.pose = None  # (x, y, yaw)
         self.state = 'WAIT_POSE'  # WAIT_POSE -> TURN -> DRIVE -> DONE
