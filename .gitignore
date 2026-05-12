@@ -14,11 +14,12 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# benchmark outputs
-**/results/
-**/results_local/
+# benchmark outputs (lokale runs)
+workspace/src/maze_planners/results/
+workspace/src/maze_planners/results_local/
 **/*.png
 !Images/**/*.png
+!docs/**/*.png
 
 # editor
 .vscode/

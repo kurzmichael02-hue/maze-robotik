@@ -104,6 +104,12 @@ ros2 service call /run_planners std_srvs/srv/Trigger
 
 ---
 
+## doku
+
+- [`docs/ALGOS.md`](docs/ALGOS.md) — mathematische erklärung jedes algos (für die mündliche prüfung)
+- [`docs/benchmark/benchmark.png`](docs/benchmark/benchmark.png) — vergleichs-plots auf 5×5 bis 25×25 mazes
+- [`docs/benchmark/benchmark.csv`](docs/benchmark/benchmark.csv) — rohdaten
+
 ## ergebnisse (8×8 maze, seed=7)
 
 | algo | weg-länge | expansions | drehungen | erfolg |
