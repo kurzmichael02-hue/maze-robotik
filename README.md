@@ -1,145 +1,118 @@
-# Maze Robotik
+# maze robotik
 
-Autonomer roboter findet den optimalen weg durch ein labyrinth.
-Simulation in **ROS 2 Jazzy** + **Gazebo Harmonic** + **SLAM Toolbox**.
+simulierter roboter findet selbständig den kürzesten weg durch ein labyrinth.
+ROS 2 jazzy + gazebo harmonic + slam_toolbox.
 
-![Status](https://img.shields.io/badge/status-running-green)
-![ROS](https://img.shields.io/badge/ROS_2-Jazzy-blue)
-![Gazebo](https://img.shields.io/badge/Gazebo-Harmonic-orange)
+## was passiert
 
----
+bot spawnt im start, kennt sein maze (gleiche seed wie generator), plant A* und fährt cell-by-cell zum ziel. parallel mappt slam_toolbox live mit dem lidar — die map wächst in rviz mit. nach ankunft am ziel triggert man einen service, der alle 4 wegfindungs-algos auf die gemappte karte loslässt und vergleicht.
 
-## was das projekt macht
+vergleich der algos ist das wo's interessant wird:
+- **wall-follower** scheitert in mazes mit mehreren wegen (loops)
+- **BFS** findet den kürzesten weg, expandiert aber viel
+- **A\*** mit manhattan-heuristik findet den selben weg, expandiert weniger
+- **flood-fill** (micromouse-stil) ist optimal und re-planning-freundlich
 
-1. **labyrinth** wird prozedural generiert (8×8 zellen, mehrere wege)
-2. **roboter** mit lidar spawnt im start (grüner marker)
-3. **slam_toolbox** mappt während der bot fährt (live in rviz)
-4. **path_executor** plant A* von start zu ziel und fährt deterministisch hin
-5. **planner_node** vergleicht alle 4 wegfindungs-algos auf der gemappten karte:
-   - **wall-follower** (links-hand-regel) → scheitert bei multi-path
-   - **BFS** → findet kürzesten weg, viele expansions
-   - **A*** → findet kürzesten weg, weniger expansions (smart)
-   - **flood-fill** → micromouse-stil, optimal
-6. ergebnisse als rote linien in rviz + zahlen-tabelle
+## aufteilung
 
----
+| package | wer | inhalt |
+|---|---|---|
+| `maze_worlds` | schayan | prozeduraler maze-generator, urdf + lidar, gazebo welt |
+| `maze_explorer` | bartolmay | slam config, frontier exploration, path executor |
+| `maze_planners` | michael | die 4 algos, benchmark, ros2 service für vergleich |
 
-## quickstart
+## setup
 
-**voraussetzungen:** docker desktop, vcxsrv (windows) oder X11 (linux), git.
+einmalig:
 
 ```bash
-# 1. repo holen
 git clone https://github.com/kurzmichael02-hue/maze-robotik.git
 cd maze-robotik
 
-# 2. base image vom dozent bauen (einmalig, ~5min)
-git clone https://gitlab.com/MarkGeiger/robotik.git tmp_dozent
-docker build -t ros2 tmp_dozent/exercises/aktuell/docker
+# base image vom dozent (~5min)
+git clone https://gitlab.com/MarkGeiger/robotik.git tmp
+docker build -t ros2 tmp/exercises/aktuell/docker
 
-# 3. unser image (~3min)
+# unser image
 docker build -t maze-robotik .
 ```
 
-**windows:** xlaunch starten → multiple windows → start no client → **disable access control ✓**
+windows: xlaunch starten (multiple windows, start no client, **disable access control** ankreuzen). linux braucht das nicht.
 
-**container starten:**
+## jedes mal
+
 ```powershell
-.\docker-run.ps1     # windows
-./docker-run.sh      # linux
+# windows
+.\docker-run.ps1
+
+# linux
+./docker-run.sh
 ```
 
-**im container** (jedes mal):
+im container:
+
 ```bash
 colcon build --symlink-install
 source install/setup.bash
 ros2 launch maze_planners full_demo.launch.py
 ```
 
-→ gazebo + rviz öffnen, bot fährt autonom los, erreicht ziel nach ~2min.
+gazebo + rviz gehen auf. bot fährt nach paar sekunden autonom los, mappt während er fährt, ist nach ~2min am ziel.
 
-**zum planner-vergleich** (parallel im 2. fenster):
+für den algo-vergleich in einem zweiten powershell:
+
 ```bash
 docker exec -it maze_robotik bash
 source /opt/ros/jazzy/setup.bash && source /root/ros2_ws/install/setup.bash
 ros2 service call /run_planners std_srvs/srv/Trigger
 ```
 
----
+→ vier farbige linien in rviz + zahlen-tabelle im terminal.
 
-## architektur
+## ergebnisse
+
+beispiel-output auf einem 25×25 maze, seed=7:
 
 ```
-┌─ maze_worlds ─────────────────┐    ┌─ maze_explorer ──────────────┐
-│ generate_maze.py (procedural) │    │ path_executor.py  (drives bot)│
-│ urdf + lidar + diff_drive     │    │ frontier_explorer.py (slam)   │
-│ → maze.sdf with bot inside    │    │ slam_toolbox config           │
-└────────────┬──────────────────┘    └──────────────┬───────────────┘
-             │                                       │
-             v                                       v
-       ┌──────────────┐    /scan, /odom    ┌─────────────────┐
-       │   gazebo     │ ◄─────────────────►│  ros 2 graph    │
-       │  (physics)   │     /cmd_vel        │  (slam, rviz)   │
-       └──────────────┘                     └────────┬────────┘
-                                                     │
-                                              /map   v
-                                          ┌─ maze_planners ─────┐
-                                          │ planner_node        │
-                                          │  ├─ wall_follower   │
-                                          │  ├─ BFS             │
-                                          │  ├─ A*              │
-                                          │  └─ flood-fill      │
-                                          │ benchmark.py        │
-                                          │ visualize.py        │
-                                          └─────────────────────┘
+wall_follower  len=536  exp=564   turns=330
+bfs            len=200  exp=386   turns=125
+astar          len=200  exp=342   turns=125
+floodfill      len=200  exp=625   turns=125
 ```
 
-## packages
+BFS / A* / flood-fill finden alle die selbe optimale länge — das ist der mathematische beweis dass 200 der kürzeste ist. A* expandiert ~11% weniger zellen als BFS (heuristik wirkt). wall-follower braucht 2.7× so viele schritte und scheitert ganz in mazes mit inseln.
 
-| package | inhalt | wer |
-|---|---|---|
-| **maze_worlds** | maze-generator, urdf, gazebo welt, ros↔gz bridge | schayan |
-| **maze_explorer** | autonomes fahren (path_executor, frontier_explorer), slam config | bartolmay |
-| **maze_planners** | 4 wegfindungs-algos, ros2 service node, benchmark + plots | michael |
+plots + csv: `docs/benchmark/`.
 
----
+## offline benchmark
 
-## doku
-
-- [`docs/ALGOS.md`](docs/ALGOS.md) — mathematische erklärung jedes algos (für die mündliche prüfung)
-- [`docs/benchmark/benchmark.png`](docs/benchmark/benchmark.png) — vergleichs-plots auf 5×5 bis 25×25 mazes
-- [`docs/benchmark/benchmark.csv`](docs/benchmark/benchmark.csv) — rohdaten
-
-## ergebnisse (8×8 maze, seed=7)
-
-| algo | weg-länge | expansions | drehungen | erfolg |
-|---|---|---|---|---|
-| **A\*** | 14 | 54 | 1 | ✅ optimal + 16% smarter als BFS |
-| **BFS** | 14 | 64 | 1 | ✅ optimal |
-| **flood-fill** | 14 | 64 | 1 | ✅ optimal |
-| **wall-follower** | 512 | 512 | 511 | ❌ scheitert (multi-path) |
-
-→ wall-follower bricht in mazes mit mehreren wegen, alle anderen finden den optimum mit unterschiedlicher effizienz.
-
----
-
-## standalone benchmark (offline, ohne ros)
+ohne ros, nur python:
 
 ```bash
 cd workspace/src/maze_planners
-python3 -m maze_planners.benchmark --sizes 5,10,15,20 --seeds 5 --plot --out results/
-python3 -m maze_planners.visualize --size 12 --seed 7 --algo astar --out astar.png
+python3 -m maze_planners.benchmark --sizes 5,10,15,20,25 --seeds 8 --plot --out results/
+python3 -m maze_planners.visualize --size 15 --seed 7 --algo astar --out astar.png
 ```
 
-generiert csv + plots im `results/` ordner.
+## struktur
 
----
+```
+.
+├── Dockerfile
+├── docker-run.{ps1,sh}
+├── workspace/
+│   └── src/
+│       ├── maze_worlds/      maze + bot + gazebo
+│       ├── maze_explorer/    slam + autonomes fahren
+│       └── maze_planners/    algos + benchmark + service
+└── docs/benchmark/           plots + csv
+```
 
 ## troubleshooting
 
 | problem | fix |
 |---|---|
-| `.\docker-run.ps1` blocked | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
-| `daemon not running` | docker desktop neu starten |
-| `Frame map does not exist` in rviz | warten bis slam initialisiert (~10sek) |
-| bot bewegt sich nicht | container fresh starten: `docker rm -f maze_robotik` |
+| `docker-run.ps1` blocked | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
+| docker daemon offline | docker desktop neu starten |
+| rviz `Frame map does not exist` | 10 sek warten, slam initialisiert noch |
+| bot bewegt sich nicht | `docker rm -f maze_robotik` + neu starten |
