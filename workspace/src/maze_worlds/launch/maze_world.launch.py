@@ -1,17 +1,12 @@
 """startet gazebo + ros-gz bridge.
-
-bot ist direkt in der welt-sdf (kein extra spawn-step nötig - das macht
-ros_gz_sim/create oft probleme bei urdf->sdf konvertierung).
-
-usage:
-    ros2 launch maze_worlds maze_world.launch.py
+bot ist direkt in der welt-sdf (ros_gz_sim/create war zu buggy bei der urdf->sdf konvertierung).
 """
 import os
 import subprocess
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -59,6 +54,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         world_arg,
+        headless_arg,
         gz_sim,
         TimerAction(period=2.0, actions=[robot_state_pub, bridge]),
     ])
