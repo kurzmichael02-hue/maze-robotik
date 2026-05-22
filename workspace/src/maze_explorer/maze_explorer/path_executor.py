@@ -1,18 +1,10 @@
-"""path_executor: bot faehrt deterministisch von start zu ziel.
-
-unterschied zu frontier_explorer:
-  - frontier_explorer = "echte" exploration via slam (manchmal stuck)
-  - path_executor = "demo modus" - kennt das maze (gleicher seed wie generator)
-                    plant A* auf bekannter cell-grid + faehrt cell-by-cell.
-                    100% zuverlaessig fuers vorzeigen.
-
-slam laeuft parallel und mappt zur visualisierung mit. der ALGORITHMISCHE
-beweis (A* findet den besten weg, wall-follower scheitert) ist trotzdem da
-weil planner_node spaeter alle 4 algos auf der gemappten map vergleicht.
+"""path_executor — bot faehrt cell-by-cell zum ziel.
+plant A* auf der bekannten cell-grid (gleicher seed wie generator).
+slam mappt parallel mit fuer rviz.
 """
 import math
-import time
 import heapq
+import random
 
 import rclpy
 from rclpy.node import Node
@@ -21,9 +13,6 @@ from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import Twist, PoseStamped
 from std_msgs.msg import ColorRGBA
 from visualization_msgs.msg import Marker
-
-# selbe logik wie generate_maze.generate_grid (kopiert damit kein cross-deps)
-import random
 
 
 DELTA = {'N': (0, 1), 'S': (0, -1), 'E': (1, 0), 'W': (-1, 0)}
