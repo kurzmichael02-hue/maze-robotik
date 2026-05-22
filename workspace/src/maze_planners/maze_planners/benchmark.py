@@ -1,13 +1,8 @@
-"""benchmark runner.
-generiert mazes verschiedener größen, fährt alle algos durch, sammelt metriken,
-schreibt csv, malt vergleichs-plots.
-
-usage:
-    python -m maze_planners.benchmark --sizes 5,10,15 --seeds 5 --out results/
+"""benchmark: alle algos auf verschiedenen maze-groessen laufen lassen.
+liefert csv + plots fuer den vergleich.
 """
 import argparse
 import csv
-import os
 from pathlib import Path
 
 from .grid import GridMap, count_turns
