@@ -1,0 +1,60 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Color: 80; 80; 80
+      Enabled: true
+      Name: Grid
+    - Class: rviz_default_plugins/Map
+      Topic:
+        Value: /map
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Name: Map
+      Enabled: true
+    - Class: rviz_default_plugins/LaserScan
+      Topic:
+        Value: /scan
+      Name: LaserScan
+      Size (m): 0.03
+      Color: 255; 100; 0
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Description Topic:
+        Value: /robot_description
+      Enabled: true
+      Name: RobotModel
+    - Class: rviz_default_plugins/MarkerArray
+      Topic:
+        Value: /frontier_markers
+      Name: Frontiers
+      Enabled: true
+    - Class: rviz_default_plugins/MarkerArray
+      Topic:
+        Value: /planned_path_markers
+      Name: PlannedPaths
+      Enabled: true
+  Global Options:
+    Background Color: 30; 30; 35
+    Fixed Frame: map
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 18
+      Pitch: 1.4
+      Yaw: 0.785
+      Focal Point:
+        X: 5
+        Y: 5
+        Z: 0
+Window Geometry:
+  Height: 900
+  Width: 1500
