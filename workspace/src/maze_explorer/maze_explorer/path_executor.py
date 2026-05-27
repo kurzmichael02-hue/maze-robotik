@@ -1,6 +1,8 @@
 """path_executor — bot faehrt cell-by-cell zum ziel.
 plant A* auf der bekannten cell-grid (gleicher seed wie generator).
 slam mappt parallel mit fuer rviz.
+
+TODO: irgendwann durch nav2 ersetzen — sauberer aber halt riesen-config.
 """
 import math
 import heapq

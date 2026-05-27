@@ -36,6 +36,7 @@ def main():
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # TODO: confidence intervals waeren noch nice fuer die plots
     rows = []
     print(f"benchmarking on sizes={sizes}, {args.seeds} seeds each, "
           f"{len(ALL_PLANNERS)} algos -> {len(sizes) * args.seeds * len(ALL_PLANNERS)} runs")

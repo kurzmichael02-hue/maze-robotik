@@ -1,6 +1,10 @@
 """frontier explorer — autonom durchs maze via slam.
 findet frontiers (rand zwischen bekannt/unbekannt), faehrt hin, mappt weiter.
 mit A* navigation + stuck-recovery + blacklist gegen dead zones.
+
+stuck-recovery ist haesslich aber funktioniert — wenn er sich nicht mehr bewegt
+(weder position noch yaw), dreht er um und versucht ne andere richtung. nach
+3 stucks in folge -> random walk fuer 10 sek raus aus der dead zone.
 """
 import math
 import time
