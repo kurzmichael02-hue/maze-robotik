@@ -53,6 +53,13 @@ floodfill      len=200
 
 alle smarten algos finden 200, a* mit weniger expansions. plots in `docs/benchmark/`.
 
+## noch offen
+
+- nav2 statt eigener controller (sauberer aber config-aufwand)
+- benchmark auf 50×50 mazes (slam braucht länger zum mappen)
+- evtl 5. algo: theta* oder D* lite
+- texturen am maze noch n bisschen aufpolieren
+
 ## quick fixes
 
 - powershell blockt das script → `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
