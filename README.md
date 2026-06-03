@@ -23,16 +23,27 @@ bot fährt cell-by-cell zum ziel, slam mappt parallel. am ende vergleichen vier 
 - **bartolmay** — maze_explorer (slam, controller)
 - **michael** — maze_planners (die 4 algos + benchmark + service)
 
-## setup
+## benutzung
 
-einmalig: docker desktop + (windows) vcxsrv. dann:
+braucht docker desktop. unter windows zusätzlich vcxsrv für die grafik (xlaunch starten, "disable access control" anhaken).
+
+**einmalig** das image bauen. wir bauen auf dem ros2-image vom dozent auf, das muss also zuerst da sein:
 
 ```bash
-docker build -t ros2 .   # base image vom dozent in tmp/ vorher clonen
+git clone https://gitlab.com/MarkGeiger/robotik.git tmp
+docker build -t ros2 tmp/exercises/aktuell/docker
 docker build -t maze-robotik .
 ```
 
-starten: `.\docker-run.ps1` (oder `.sh`), drin:
+dauert beim ersten mal so 10 min (lädt ros2 + gazebo runter).
+
+**jedes mal** zum starten:
+
+```bash
+.\docker-run.ps1          # windows, bzw ./docker-run.sh auf linux
+```
+
+man landet dann im container. dort:
 
 ```bash
 colcon build --symlink-install
@@ -40,7 +51,23 @@ source install/setup.bash
 ros2 launch maze_planners full_demo.launch.py
 ```
 
-algo-vergleich im 2. terminal: `ros2 service call /run_planners std_srvs/srv/Trigger`
+gazebo + rviz gehen auf, der bot fährt von selbst los und ist nach ~2 min am ziel.
+
+den algo-vergleich startet man in nem **zweiten terminal** (erstes ist ja vom launch belegt):
+
+```bash
+docker exec -it maze_robotik bash
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
+ros2 service call /run_planners std_srvs/srv/Trigger
+```
+
+dann erscheinen die 4 pfade als farbige linien in rviz + die tabelle im terminal.
+
+eigenes labyrinth generieren geht über den generator direkt:
+
+```bash
+ros2 run maze_worlds generate_maze --size 12 --seed 3 --difficulty easy
+```
 
 ## zahlen (25×25 maze)
 
