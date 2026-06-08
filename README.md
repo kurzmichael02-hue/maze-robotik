@@ -17,11 +17,12 @@ simulierter roboter findet den kürzesten weg durchs labyrinth. ros 2 jazzy + ga
 
 bot fährt cell-by-cell zum ziel, slam mappt parallel. am ende vergleichen vier algos den weg auf der gemappten karte.
 
-## wer macht was
+## komponenten
 
-- **schayan** — maze_worlds (generator, gazebo welt, urdf)
-- **bartolmay** — maze_explorer (slam, controller)
-- **michael** — maze_planners (die 4 algos + benchmark + service)
+- **maze_worlds** — labyrinth-generator + roboter (urdf mit lidar) + gazebo welt — *schayan*
+- **maze_explorer** — slam_toolbox config + der controller der den bot fährt — *bartolmay*
+- **maze_planners** — die 4 wegfindungs-algos (wall-follower, bfs, a*, flood-fill) + vergleichs-service + benchmark — *michael*
+- **docker** — kapselt ros2 jazzy + gazebo + slam, damit's bei allen gleich läuft
 
 ## benutzung
 
