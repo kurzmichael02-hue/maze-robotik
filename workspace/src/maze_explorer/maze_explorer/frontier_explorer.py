@@ -1,14 +1,10 @@
-"""frontier explorer mit A* pfadplanung + stuck-recovery.
+"""frontier explorer — autonom durchs maze via slam.
+findet frontiers (rand zwischen bekannt/unbekannt), faehrt hin, mappt weiter.
+mit A* navigation + stuck-recovery + blacklist gegen dead zones.
 
-states:
-  EXPLORING - bot sucht frontiers, faehrt zur naechsten
-  GOING_TO_GOAL - exploration fertig, bot faehrt vom start zum goal-marker
-  DONE - am ziel angekommen
-
-improvements ggue dem reactive ansatz:
-  - A* auf der occupancy-grid statt direkter linie
-  - stuck-detection: wenn position 4 sek nicht aendert -> recovery rotation
-  - 360-grad safety check (nicht nur vorne)
+stuck-recovery ist haesslich aber funktioniert — wenn er sich nicht mehr bewegt
+(weder position noch yaw), dreht er um und versucht ne andere richtung. nach
+3 stucks in folge -> random walk fuer 10 sek raus aus der dead zone.
 """
 import math
 import time

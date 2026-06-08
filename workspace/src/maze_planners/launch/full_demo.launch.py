@@ -1,20 +1,13 @@
-"""master launch: maze + bot + slam + frontier + planner_node + rviz.
-
-usage:
-    ros2 launch maze_planners full_demo.launch.py size:=10 seed:=7
-
-ablauf:
-1. gazebo mit maze + bot
-2. nach 5s: slam_toolbox + rviz
-3. nach 8s: frontier_explorer + planner_node
+"""master launch: maze + bot + slam + path_executor + planner_node + rviz.
+ablauf: gazebo -> 5s warten -> slam + rviz -> 10s warten -> bot faehrt + planner-service bereit.
 """
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, TimerAction, ExecuteProcess, GroupAction
-from launch.conditions import IfCondition, UnlessCondition
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, TimerAction
+from launch.conditions import UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -59,9 +52,8 @@ def generate_launch_description():
         condition=UnlessCondition(headless),
     )
 
-    # 4. path executor (deterministischer demo-fahrer)
-    # alternative: frontier_explorer wenn man slam-exploration sehen will
-    frontier = Node(
+    # 4. path executor (deterministisch). alternative: frontier_explorer fuer slam-exploration
+    executor = Node(
         package='maze_explorer',
         executable='path_executor',
         output='screen',
@@ -92,5 +84,5 @@ def generate_launch_description():
         *args,
         maze_world,
         TimerAction(period=5.0, actions=[slam, rviz]),
-        TimerAction(period=10.0, actions=[frontier, planner]),
+        TimerAction(period=10.0, actions=[executor, planner]),
     ])

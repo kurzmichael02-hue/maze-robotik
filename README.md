@@ -1,145 +1,90 @@
-# Maze Robotik
+# maze robotik
 
-Autonomer roboter findet den optimalen weg durch ein labyrinth.
-Simulation in **ROS 2 Jazzy** + **Gazebo Harmonic** + **SLAM Toolbox**.
+simulated robot finds the shortest path through a maze. ros 2 jazzy + gazebo harmonic + slam_toolbox.
 
-![Status](https://img.shields.io/badge/status-running-green)
-![ROS](https://img.shields.io/badge/ROS_2-Jazzy-blue)
-![Gazebo](https://img.shields.io/badge/Gazebo-Harmonic-orange)
+```
+  maze_worlds              maze_explorer              maze_planners
+  ───────────              ─────────────              ─────────────
+  gazebo maze world        slam_toolbox  ──► /map ──► bfs · a*
+  bot + 360° lidar  ─scan─► builds the map            flood-fill
+         ▲                  path_executor (a*)        wall-follower
+         │                  drives the bot                  │
+         └──── /cmd_vel ──────────┘                         ▼
+                                                     compare the paths
+                                                     on the slam map
+```
 
----
+the bot drives cell by cell to the goal while slam maps in parallel. at the end four algorithms compare their paths on the mapped grid.
 
-## was das projekt macht
+## components
 
-1. **labyrinth** wird prozedural generiert (8×8 zellen, mehrere wege)
-2. **roboter** mit lidar spawnt im start (grüner marker)
-3. **slam_toolbox** mappt während der bot fährt (live in rviz)
-4. **path_executor** plant A* von start zu ziel und fährt deterministisch hin
-5. **planner_node** vergleicht alle 4 wegfindungs-algos auf der gemappten karte:
-   - **wall-follower** (links-hand-regel) → scheitert bei multi-path
-   - **BFS** → findet kürzesten weg, viele expansions
-   - **A*** → findet kürzesten weg, weniger expansions (smart)
-   - **flood-fill** → micromouse-stil, optimal
-6. ergebnisse als rote linien in rviz + zahlen-tabelle
+- **maze_worlds** — maze generator + robot (urdf with lidar) + gazebo world — *schayan*
+- **maze_explorer** — slam_toolbox config + the controller that drives the bot — *bartolmay*
+- **maze_planners** — the 4 pathfinding algos (wall-follower, bfs, a*, flood-fill) + comparison service + benchmark — *michael*
+- **docker** — wraps ros2 jazzy + gazebo + slam so it runs the same for everyone
 
----
+## usage
 
-## quickstart
+needs docker desktop. on windows also vcxsrv for the graphics (start xlaunch, tick "disable access control").
 
-**voraussetzungen:** docker desktop, vcxsrv (windows) oder X11 (linux), git.
+**once** build the image. we build on top of the lecturer's ros2 image, so that one has to exist first:
 
 ```bash
-# 1. repo holen
-git clone https://github.com/kurzmichael02-hue/maze-robotik.git
-cd maze-robotik
-
-# 2. base image vom dozent bauen (einmalig, ~5min)
-git clone https://gitlab.com/MarkGeiger/robotik.git tmp_dozent
-docker build -t ros2 tmp_dozent/exercises/aktuell/docker
-
-# 3. unser image (~3min)
+git clone https://gitlab.com/MarkGeiger/robotik.git tmp
+docker build -t ros2 tmp/exercises/aktuell/docker
 docker build -t maze-robotik .
 ```
 
-**windows:** xlaunch starten → multiple windows → start no client → **disable access control ✓**
+first time takes about 10 min (downloads ros2 + gazebo).
 
-**container starten:**
-```powershell
-.\docker-run.ps1     # windows
-./docker-run.sh      # linux
+**every time** to start:
+
+```bash
+.\docker-run.ps1          # windows, or ./docker-run.sh on linux
 ```
 
-**im container** (jedes mal):
+you land inside the container. there:
+
 ```bash
 colcon build --symlink-install
 source install/setup.bash
 ros2 launch maze_planners full_demo.launch.py
 ```
 
-→ gazebo + rviz öffnen, bot fährt autonom los, erreicht ziel nach ~2min.
+gazebo + rviz open, the bot drives off on its own and reaches the goal after ~2 min.
 
-**zum planner-vergleich** (parallel im 2. fenster):
+run the algo comparison in a **second terminal** (the first one is busy with the launch):
+
 ```bash
 docker exec -it maze_robotik bash
-source /opt/ros/jazzy/setup.bash && source /root/ros2_ws/install/setup.bash
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ros2 service call /run_planners std_srvs/srv/Trigger
 ```
 
----
+the 4 paths then show up as colored lines in rviz + the table in the terminal.
 
-## architektur
-
-```
-┌─ maze_worlds ─────────────────┐    ┌─ maze_explorer ──────────────┐
-│ generate_maze.py (procedural) │    │ path_executor.py  (drives bot)│
-│ urdf + lidar + diff_drive     │    │ frontier_explorer.py (slam)   │
-│ → maze.sdf with bot inside    │    │ slam_toolbox config           │
-└────────────┬──────────────────┘    └──────────────┬───────────────┘
-             │                                       │
-             v                                       v
-       ┌──────────────┐    /scan, /odom    ┌─────────────────┐
-       │   gazebo     │ ◄─────────────────►│  ros 2 graph    │
-       │  (physics)   │     /cmd_vel        │  (slam, rviz)   │
-       └──────────────┘                     └────────┬────────┘
-                                                     │
-                                              /map   v
-                                          ┌─ maze_planners ─────┐
-                                          │ planner_node        │
-                                          │  ├─ wall_follower   │
-                                          │  ├─ BFS             │
-                                          │  ├─ A*              │
-                                          │  └─ flood-fill      │
-                                          │ benchmark.py        │
-                                          │ visualize.py        │
-                                          └─────────────────────┘
-```
-
-## packages
-
-| package | inhalt | wer |
-|---|---|---|
-| **maze_worlds** | maze-generator, urdf, gazebo welt, ros↔gz bridge | schayan |
-| **maze_explorer** | autonomes fahren (path_executor, frontier_explorer), slam config | bartolmay |
-| **maze_planners** | 4 wegfindungs-algos, ros2 service node, benchmark + plots | michael |
-
----
-
-## doku
-
-- [`docs/ALGOS.md`](docs/ALGOS.md) — mathematische erklärung jedes algos (für die mündliche prüfung)
-- [`docs/benchmark/benchmark.png`](docs/benchmark/benchmark.png) — vergleichs-plots auf 5×5 bis 25×25 mazes
-- [`docs/benchmark/benchmark.csv`](docs/benchmark/benchmark.csv) — rohdaten
-
-## ergebnisse (8×8 maze, seed=7)
-
-| algo | weg-länge | expansions | drehungen | erfolg |
-|---|---|---|---|---|
-| **A\*** | 14 | 54 | 1 | ✅ optimal + 16% smarter als BFS |
-| **BFS** | 14 | 64 | 1 | ✅ optimal |
-| **flood-fill** | 14 | 64 | 1 | ✅ optimal |
-| **wall-follower** | 512 | 512 | 511 | ❌ scheitert (multi-path) |
-
-→ wall-follower bricht in mazes mit mehreren wegen, alle anderen finden den optimum mit unterschiedlicher effizienz.
-
----
-
-## standalone benchmark (offline, ohne ros)
+generating your own maze goes straight through the generator:
 
 ```bash
-cd workspace/src/maze_planners
-python3 -m maze_planners.benchmark --sizes 5,10,15,20 --seeds 5 --plot --out results/
-python3 -m maze_planners.visualize --size 12 --seed 7 --algo astar --out astar.png
+ros2 run maze_worlds generate_maze --size 12 --seed 3 --difficulty easy
 ```
 
-generiert csv + plots im `results/` ordner.
+## numbers (25×25 maze)
 
----
+```
+wall_follower  len=536  ← fails (loops)
+bfs            len=200
+astar          len=200  exp=342  ← fewer than bfs
+floodfill      len=200
+```
 
-## troubleshooting
+all the smart algos find 200, a* with fewer expansions. plots in `docs/benchmark/`.
 
-| problem | fix |
-|---|---|
-| `.\docker-run.ps1` blocked | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
-| `daemon not running` | docker desktop neu starten |
-| `Frame map does not exist` in rviz | warten bis slam initialisiert (~10sek) |
-| bot bewegt sich nicht | container fresh starten: `docker rm -f maze_robotik` |
+## quick fixes
+
+- powershell blocks the script → `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+- bot gets stuck → `docker rm -f maze_robotik` and restart
+
+## project
+
+team project at dhbw mannheim, built over 3 months. graded 96/100. weekly meeting notes in [docs/meetings.md](docs/meetings.md).

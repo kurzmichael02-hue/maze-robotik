@@ -1,31 +1,15 @@
-"""occupancy grid (slam_toolbox output) -> GridMap (cell-basiert).
-
-annahme: maze cells sind exact `cell_size` m breit, das maze ist axis-aligned
-und start ist bei (0,0).
-
-algo: für jede cell schau dir das pixel-feld an, das die zelle abdeckt.
-für jede der 4 wände teste ob die occupancy-werte entlang der wand-linie
-free oder occupied sind.
+"""slam occupancy grid -> unsere cell-basierte GridMap.
+fuer jede cell schau ob die 4 wandlinien occupied sind.
 """
-import math
 from .grid import GridMap, DIRS, OPP
 
 
-# occupancy grid values
 UNKNOWN = -1
-OCC_THRESH = 50  # >= 50 = occupied
+OCC_THRESH = 50  # >= 50 = wand
 
 
 def occgrid_to_gridmap(occ_data, occ_w, occ_h, occ_res, occ_origin_x, occ_origin_y,
                        cell_size, maze_size, start_world=(0.5, 0.5)):
-    """occupancy grid -> GridMap.
-
-    occ_data: 1D array, w*h, values [-1, 0..100]
-    occ_origin: world-koords der ecke (0,0) der occ_grid
-    cell_size: maze cell width in meters
-    maze_size: NxN cells
-    start_world: world-position der maze-cell (0,0) center
-    """
     walls = {(x, y): set() for x in range(maze_size) for y in range(maze_size)}
 
     def occ_at(px, py):

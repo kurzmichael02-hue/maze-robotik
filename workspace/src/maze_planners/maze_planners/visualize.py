@@ -1,10 +1,5 @@
-"""visualisiert ein maze + den geplanten pfad.
-
-usage:
-    python -m maze_planners.visualize --size 10 --seed 7 --algo astar --out path.png
-"""
+"""ein maze + pfad als PNG. fuer demo screenshots / die abgabe."""
 import argparse
-from pathlib import Path
 
 from .grid import GridMap
 from .algorithms import ALL_PLANNERS
