@@ -50,3 +50,4 @@ maze_worlds/
 - easy:   ~85 walls (many alternatives)
 - medium: ~105 walls (several routes)
 - hard:   ~121 walls (one route only)
+"# maze generator" 
